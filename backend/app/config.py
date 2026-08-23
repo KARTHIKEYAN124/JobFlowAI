@@ -1,3 +1,4 @@
+import os
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import Field, field_validator
@@ -6,7 +7,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-    database_url: str = "sqlite+aiosqlite:///./jobflow.db"
+    # Vercel functions can only write to /tmp. This keeps an unconfigured demo
+    # healthy; production deployments should always provide DATABASE_URL.
+    database_url: str = (
+        "sqlite+aiosqlite:////tmp/jobflow.db"
+        if os.getenv("VERCEL")
+        else "sqlite+aiosqlite:///./jobflow.db"
+    )
     jwt_secret: str = Field("development-only-change-me-now", min_length=24)
     webhook_secret: str = Field("development-webhook-secret", min_length=16)
     cors_origins: str = "http://localhost:3000"

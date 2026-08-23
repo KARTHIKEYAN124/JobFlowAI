@@ -2,6 +2,8 @@
 
 AI-powered job intelligence and application automation platform built with n8n, FastAPI, Next.js, PostgreSQL, vector search, Redis, Qdrant, and local AI support.
 
+Live deployment: <https://jobflow-ai-delta.vercel.app>
+
 JobFlow AI continuously collects permitted public job feeds, normalizes and deduplicates postings, computes explainable matches, identifies skill gaps, prepares honest application materials, and tracks the application lifecycle. n8n orchestrates workflows; business rules remain in FastAPI, and every external application action requires human approval.
 
 ## What is implemented
@@ -116,6 +118,22 @@ npm run build
 ```
 
 The API defaults to SQLite outside Docker so tests and local development do not require infrastructure. Docker configures PostgreSQL automatically.
+
+## Vercel deployment
+
+The repository includes a Vercel Services configuration that publishes the Next.js app at `/` and FastAPI at `/backend`. The current public deployment is <https://jobflow-ai-delta.vercel.app>.
+
+For persistent production data, open the `jobflow-ai` project in Vercel, install **Neon Postgres** from **Storage / Marketplace**, and connect it to all environments. Confirm that Vercel creates `DATABASE_URL`, then redeploy the latest production deployment. Also add unique, randomly generated `JWT_SECRET` (at least 32 characters) and `WEBHOOK_SECRET` (at least 32 characters). These values must never be committed.
+
+Without `DATABASE_URL`, the Vercel deployment uses SQLite in `/tmp` so the demonstration API can start, but data can reset whenever a serverless instance is recycled. Local Docker continues to use PostgreSQL from `.env`.
+
+Production checks:
+
+```text
+https://jobflow-ai-delta.vercel.app/
+https://jobflow-ai-delta.vercel.app/backend/health
+https://jobflow-ai-delta.vercel.app/backend/docs
+```
 
 ## Responsible automation
 
