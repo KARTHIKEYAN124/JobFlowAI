@@ -127,13 +127,18 @@ For persistent production data, open the `jobflow-ai` project in Vercel, install
 
 Without `DATABASE_URL`, the Vercel deployment uses SQLite in `/tmp` so the demonstration API can start, but data can reset whenever a serverless instance is recycled. Local Docker continues to use PostgreSQL from `.env`.
 
-Production checks:
+Production pages:
 
-```text
-https://jobflow-ai-delta.vercel.app/
-https://jobflow-ai-delta.vercel.app/backend/health
-https://jobflow-ai-delta.vercel.app/backend/docs
-```
+| URL | Use |
+|---|---|
+| <https://jobflow-ai-delta.vercel.app/> | Entry point. New visitors go to sign-up; an existing browser session goes to the dashboard. |
+| <https://jobflow-ai-delta.vercel.app/auth/sign-up> | Create a JobFlow account. Successful registration opens the dashboard. |
+| <https://jobflow-ai-delta.vercel.app/auth/sign-in> | Sign in, then open the dashboard. |
+| <https://jobflow-ai-delta.vercel.app/dashboard> | Authenticated main page. Unauthenticated visitors are returned to sign-in. |
+| <https://jobflow-ai-delta.vercel.app/backend/health> | API availability check. A healthy deployment returns HTTP 200 and `{"status":"ok","service":"jobflow-api"}`. |
+| <https://jobflow-ai-delta.vercel.app/backend/docs> | Interactive Swagger documentation for exploring API routes. Protected routes require a bearer token. |
+
+`/backend/healthAPI` is not a valid route; `/backend/health` and `/backend/docs` are two separate URLs.
 
 ## Responsible automation
 
