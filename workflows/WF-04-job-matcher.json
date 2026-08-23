@@ -1,0 +1,13 @@
+{
+  "name":"WF-04 Job Matcher",
+  "nodes":[
+    {"parameters":{},"id":"1","name":"New Processed Job","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[0,0]},
+    {"parameters":{"operation":"executeQuery","query":"SELECT id AS candidate_id FROM users"},"id":"2","name":"Get Candidates","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[240,0]},
+    {"parameters":{"method":"POST","url":"={{$env.API_INTERNAL_URL}}/api/v1/jobs/{{$('New Processed Job').item.json.id}}/match","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth"},"id":"3","name":"FastAPI Match Service","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[480,0]},
+    {"parameters":{"conditions":{"conditions":[{"leftValue":"={{$json.overall_score}}","rightValue":80,"operator":{"type":"number","operation":"gte"}}]}},"id":"4","name":"High Priority","type":"n8n-nodes-base.if","typeVersion":2.2,"position":[720,0]},
+    {"parameters":{"workflowId":{"__rl":true,"value":"WF-05","mode":"list"}},"id":"5","name":"Notify High Match","type":"n8n-nodes-base.executeWorkflow","typeVersion":1.2,"position":[960,-100]},
+    {"parameters":{"conditions":{"conditions":[{"leftValue":"={{$json.overall_score}}","rightValue":65,"operator":{"type":"number","operation":"gte"}}]}},"id":"6","name":"Medium Priority","type":"n8n-nodes-base.if","typeVersion":2.2,"position":[960,100]},
+    {"parameters":{"operation":"executeQuery","query":"UPDATE job_matches SET explanation=COALESCE(explanation,'Archived: low relevance') WHERE id=$1","options":{"queryReplacement":"={{[$json.id]}}"}},"id":"7","name":"Archive Low Match","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[1200,180]}
+  ],
+  "connections":{"New Processed Job":{"main":[[{"node":"Get Candidates","type":"main","index":0}]]},"Get Candidates":{"main":[[{"node":"FastAPI Match Service","type":"main","index":0}]]},"FastAPI Match Service":{"main":[[{"node":"High Priority","type":"main","index":0}]]},"High Priority":{"main":[[{"node":"Notify High Match","type":"main","index":0}],[{"node":"Medium Priority","type":"main","index":0}]]},"Medium Priority":{"main":[[],[{"node":"Archive Low Match","type":"main","index":0}]]}},"settings":{"executionOrder":"v1","errorWorkflow":"WF-10"},"active":false,"versionId":"10000000-0000-4000-8000-000000000004"
+}

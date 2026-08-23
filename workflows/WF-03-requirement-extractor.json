@@ -1,0 +1,12 @@
+{
+  "name":"WF-03 Requirement Extractor",
+  "nodes":[
+    {"parameters":{},"id":"1","name":"From Job Ingestion","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[0,0]},
+    {"parameters":{"url":"={{$env.API_INTERNAL_URL}}/api/v1/jobs/{{$json.id}}","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth"},"id":"2","name":"Get Job","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[240,0]},
+    {"parameters":{"jsCode":"const text=$json.description.toLowerCase();const known=['Java','Spring Boot','REST','PostgreSQL','Python','FastAPI','React','AWS','Docker','Kafka','Kubernetes','Terraform'];const found=known.filter(s=>text.includes(s.toLowerCase()));return [{json:{...$json,required_skills:found,language_requirements:{german:text.includes('german b2')?'B2':text.includes('german')?'B1':'none',english:text.includes('english')?'Fluent':'none'}}}];"},"id":"3","name":"Structured Requirement Extraction","type":"n8n-nodes-base.code","typeVersion":2,"position":[480,0]},
+    {"parameters":{"jsCode":"if(!Array.isArray($json.required_skills)||typeof $json.language_requirements!=='object')throw new Error('Invalid structured requirements');return items;"},"id":"4","name":"Validate JSON","type":"n8n-nodes-base.code","typeVersion":2,"position":[720,0]},
+    {"parameters":{"operation":"executeQuery","query":"UPDATE jobs SET required_skills=$1,language_requirements=$2,updated_at=NOW() WHERE id=$3","options":{"queryReplacement":"={{[$json.required_skills,$json.language_requirements,$json.id]}}"}},"id":"5","name":"Save Requirements","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[960,0]},
+    {"parameters":{"workflowId":{"__rl":true,"value":"WF-04","mode":"list"}},"id":"6","name":"Start Matcher","type":"n8n-nodes-base.executeWorkflow","typeVersion":1.2,"position":[1200,0]}
+  ],
+  "connections":{"From Job Ingestion":{"main":[[{"node":"Get Job","type":"main","index":0}]]},"Get Job":{"main":[[{"node":"Structured Requirement Extraction","type":"main","index":0}]]},"Structured Requirement Extraction":{"main":[[{"node":"Validate JSON","type":"main","index":0}]]},"Validate JSON":{"main":[[{"node":"Save Requirements","type":"main","index":0}]]},"Save Requirements":{"main":[[{"node":"Start Matcher","type":"main","index":0}]]}},"settings":{"executionOrder":"v1","errorWorkflow":"WF-10"},"active":false,"versionId":"10000000-0000-4000-8000-000000000003"
+}

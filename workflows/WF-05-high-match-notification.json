@@ -1,0 +1,9 @@
+{
+  "name":"WF-05 High-match Notification",
+  "nodes":[
+    {"parameters":{},"id":"1","name":"High Match","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[0,0]},
+    {"parameters":{"jsCode":"return [{json:{...$json,subject:`🚀 ${$json.overall_score}% Job Match`,body:`Strong match. Matched: ${($json.matched_skills||[]).join(', ')}. Missing: ${($json.missing_skills||[]).join(', ')||'none'}.`}}];"},"id":"2","name":"Generate Safe Summary","type":"n8n-nodes-base.code","typeVersion":2,"position":[240,0]},
+    {"parameters":{"fromEmail":"={{$env.NOTIFICATION_FROM}}","toEmail":"={{$json.user_email}}","subject":"={{$json.subject}}","emailFormat":"text","text":"={{$json.body}}","options":{}},"id":"3","name":"Send Email","type":"n8n-nodes-base.emailSend","typeVersion":2.1,"position":[480,0]},
+    {"parameters":{"operation":"executeQuery","query":"INSERT INTO notifications(id,user_id,channel,subject,body,sent_at) VALUES(gen_random_uuid(),$1,'email',$2,$3,NOW())","options":{"queryReplacement":"={{[$json.user_id,$json.subject,$json.body]}}"}},"id":"4","name":"Log Notification","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[720,0]}
+  ],"connections":{"High Match":{"main":[[{"node":"Generate Safe Summary","type":"main","index":0}]]},"Generate Safe Summary":{"main":[[{"node":"Send Email","type":"main","index":0}]]},"Send Email":{"main":[[{"node":"Log Notification","type":"main","index":0}]]}},"settings":{"executionOrder":"v1","errorWorkflow":"WF-10"},"active":false,"versionId":"10000000-0000-4000-8000-000000000005"
+}

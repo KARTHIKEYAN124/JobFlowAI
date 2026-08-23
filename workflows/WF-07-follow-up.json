@@ -1,0 +1,8 @@
+{
+  "name":"WF-07 Follow-up","nodes":[
+    {"parameters":{"rule":{"interval":[{"triggerAtHour":8}]}},"id":"1","name":"Every Morning","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[0,0]},
+    {"parameters":{"operation":"executeQuery","query":"SELECT a.id,a.user_id,j.title,j.company_name FROM applications a JOIN jobs j ON j.id=a.job_id WHERE a.status='APPLIED' AND a.applied_at < NOW()-INTERVAL '7 days' AND a.followup_sent=false"},"id":"2","name":"Find Due Follow-ups","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[240,0]},
+    {"parameters":{"jsCode":"return items.map(i=>({json:{...i.json,message:`Follow-up due for ${i.json.title} at ${i.json.company_name}. Review the suggested message before sending.`}}));"},"id":"3","name":"Generate Reminder","type":"n8n-nodes-base.code","typeVersion":2,"position":[480,0]},
+    {"parameters":{"operation":"executeQuery","query":"INSERT INTO notifications(id,user_id,channel,subject,body) VALUES(gen_random_uuid(),$1,'in_app','Application follow-up due',$2); UPDATE applications SET followup_at=NOW() WHERE id=$3","options":{"queryReplacement":"={{[$json.user_id,$json.message,$json.id]}}"}},"id":"4","name":"Notify User","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[720,0]}
+  ],"connections":{"Every Morning":{"main":[[{"node":"Find Due Follow-ups","type":"main","index":0}]]},"Find Due Follow-ups":{"main":[[{"node":"Generate Reminder","type":"main","index":0}]]},"Generate Reminder":{"main":[[{"node":"Notify User","type":"main","index":0}]]}},"settings":{"executionOrder":"v1","errorWorkflow":"WF-10"},"active":false,"versionId":"10000000-0000-4000-8000-000000000007"
+}

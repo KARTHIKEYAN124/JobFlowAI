@@ -1,0 +1,8 @@
+{
+  "name":"WF-08 Interview Prep","nodes":[
+    {"parameters":{"httpMethod":"POST","path":"interview-prep","responseMode":"lastNode"},"id":"1","name":"Interview Status Webhook","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0]},
+    {"parameters":{"conditions":{"conditions":[{"leftValue":"={{$json.body.status}}","rightValue":"INTERVIEW","operator":{"type":"string","operation":"equals"}}]}},"id":"2","name":"Is Interview","type":"n8n-nodes-base.if","typeVersion":2.2,"position":[240,0]},
+    {"parameters":{"method":"POST","url":"={{$env.API_INTERNAL_URL}}/api/v1/ai/interview","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth","sendBody":true,"specifyBody":"json","jsonBody":"={\"job_id\":\"{{$json.body.job_id}}\"}"},"id":"3","name":"Generate Interview Pack","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[480,-80]},
+    {"parameters":{"respondWith":"json","responseBody":"={{$json}}"},"id":"4","name":"Return Pack","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.4,"position":[720,-80]}
+  ],"connections":{"Interview Status Webhook":{"main":[[{"node":"Is Interview","type":"main","index":0}]]},"Is Interview":{"main":[[{"node":"Generate Interview Pack","type":"main","index":0}]]},"Generate Interview Pack":{"main":[[{"node":"Return Pack","type":"main","index":0}]]}},"settings":{"executionOrder":"v1","errorWorkflow":"WF-10"},"active":false,"versionId":"10000000-0000-4000-8000-000000000008"
+}

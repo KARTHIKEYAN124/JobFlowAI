@@ -1,0 +1,8 @@
+{
+  "name":"WF-06 Application Generator","nodes":[
+    {"parameters":{"httpMethod":"POST","path":"application-generator","responseMode":"lastNode"},"id":"1","name":"Application Webhook","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0]},
+    {"parameters":{"method":"POST","url":"={{$env.API_INTERNAL_URL}}/api/v1/ai/application","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth","sendBody":true,"specifyBody":"json","jsonBody":"={\"application_id\":\"{{$json.body.application_id}}\"}"},"id":"2","name":"Generate Honest Application Pack","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[260,0]},
+    {"parameters":{"jsCode":"if(!$json.requires_human_approval)throw new Error('Application output must require human approval');return items;"},"id":"3","name":"Enforce Human Approval","type":"n8n-nodes-base.code","typeVersion":2,"position":[520,0]},
+    {"parameters":{"respondWith":"json","responseBody":"={{$json}}"},"id":"4","name":"Return Draft","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.4,"position":[780,0]}
+  ],"connections":{"Application Webhook":{"main":[[{"node":"Generate Honest Application Pack","type":"main","index":0}]]},"Generate Honest Application Pack":{"main":[[{"node":"Enforce Human Approval","type":"main","index":0}]]},"Enforce Human Approval":{"main":[[{"node":"Return Draft","type":"main","index":0}]]}},"settings":{"executionOrder":"v1","errorWorkflow":"WF-10"},"active":false,"versionId":"10000000-0000-4000-8000-000000000006"
+}

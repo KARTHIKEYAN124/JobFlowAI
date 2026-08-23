@@ -1,0 +1,12 @@
+{
+  "name": "WF-01 Candidate Profile Processor",
+  "nodes": [
+    {"parameters":{"httpMethod":"POST","path":"candidate-profile","responseMode":"lastNode"},"id":"1","name":"Profile Webhook","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0]},
+    {"parameters":{"url":"={{$env.API_INTERNAL_URL}}/api/v1/profile","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth"},"id":"2","name":"Get Candidate Profile","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[240,0]},
+    {"parameters":{"jsCode":"const p=$json;if(!p.id||!p.skills?.length) throw new Error('Profile requires an id and skills');return [{json:{...p,searchable_text:[p.headline,...p.skills,...p.preferred_roles].filter(Boolean).join(' ')}}];"},"id":"3","name":"Validate and Build Search Text","type":"n8n-nodes-base.code","typeVersion":2,"position":[480,0]},
+    {"parameters":{"method":"PUT","url":"={{$env.API_INTERNAL_URL}}/api/v1/profile","sendBody":true,"specifyBody":"json","jsonBody":"={{$json}}","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth"},"id":"4","name":"Update Processed Candidate","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[720,0]},
+    {"parameters":{"respondWith":"json","responseBody":"={\"processed\":true,\"candidate_id\":\"{{$json.id}}\"}"},"id":"5","name":"Respond","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.4,"position":[960,0]}
+  ],
+  "connections":{"Profile Webhook":{"main":[[{"node":"Get Candidate Profile","type":"main","index":0}]]},"Get Candidate Profile":{"main":[[{"node":"Validate and Build Search Text","type":"main","index":0}]]},"Validate and Build Search Text":{"main":[[{"node":"Update Processed Candidate","type":"main","index":0}]]},"Update Processed Candidate":{"main":[[{"node":"Respond","type":"main","index":0}]]}},
+  "settings":{"executionOrder":"v1","errorWorkflow":"WF-10"},"active":false,"versionId":"10000000-0000-4000-8000-000000000001"
+}
