@@ -10,6 +10,8 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -60,6 +62,14 @@ class Resume(Base):
     id: Mapped[str]=mapped_column(String(36),primary_key=True,default=uid); user_id: Mapped[str]=mapped_column(ForeignKey("users.id"),index=True)
     filename: Mapped[str]=mapped_column(String(255)); content_type: Mapped[str]=mapped_column(String(80)); extracted_text: Mapped[str]=mapped_column(Text)
     structured_data: Mapped[dict]=mapped_column(JSON,default=dict); created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class ResumeFile(Base):
+    __tablename__="resume_files"
+    resume_id: Mapped[str]=mapped_column(ForeignKey("resumes.id",ondelete="CASCADE"),primary_key=True)
+    data: Mapped[bytes]=mapped_column(LargeBinary)
+    size: Mapped[int]=mapped_column(Integer)
+    stored_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
 
 
 class Company(Base):

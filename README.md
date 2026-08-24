@@ -68,7 +68,7 @@ Start at <http://localhost:3000/auth/sign-up> and create an account. The browser
 |---|---|
 | `/auth/sign-up` | Create an account with your name, email, and a password of at least 10 characters. |
 | `/auth/sign-in` | Sign in to an existing account. Sign in again if a page says authentication is required. |
-| `/profile` | Edit your name, headline, target roles, locations, salary, and remote preference. Click **Save profile**. Uploading a text-based PDF extracts skills, scans the public Arbeitnow job-board API, imports relevant jobs, and calculates matches. |
+| `/profile` | Edit your name, headline, target roles, locations, salary, and remote preference. Click **Save profile**. Uploading a text-based PDF stores the original file, extracts skills, scans the public Arbeitnow job-board API, imports relevant jobs, and calculates matches. The stored PDF can be downloaded from the same card. |
 | `/jobs` | Browse/filter imported opportunities or click **Scan public jobs** to refresh them. **Prepare application** opens a detailed form for contact information, work authorization, availability, salary, links, experience, motivation, and review consent before generating a draft. |
 | `/jobs/{id}` | Review one job, its source link, match score, skills, and gaps. **Prepare interview questions** searches the public Stack Exchange API and shows accepted Stack Overflow answers with citations. |
 | `/matches` | View ranked match results produced by the matching workflow/API. |

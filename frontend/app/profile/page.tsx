@@ -1,13 +1,13 @@
 "use client";
 
 import { ChangeEvent, useEffect, useState } from "react";
-import { FileUp, LoaderCircle, Save } from "lucide-react";
+import { Download, FileUp, LoaderCircle, Save } from "lucide-react";
 import { PageHeading } from "@/components/page-heading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { api, apiForm } from "@/lib/api";
+import { api, apiBlob, apiForm } from "@/lib/api";
 
 type Profile = {
   full_name: string; headline: string; skills: string[];
@@ -15,7 +15,7 @@ type Profile = {
   languages: Record<string, string>; preferred_roles: string[]; preferred_locations: string[];
   expected_salary: string; remote_preference: string;
 };
-type Resume = { filename: string; structured_data: { skills?: string[] }; created_at?: string; job_scan?: { source?: string; found: number; imported: number; matched: number; error?: string } };
+type Resume = { filename: string; structured_data: { skills?: string[] }; created_at?: string; stored?: boolean; file_size?: number; job_scan?: { source?: string; found: number; imported: number; matched: number; error?: string } };
 const emptyProfile: Profile = { full_name: "", headline: "", skills: [], experience: [], education: [], projects: [], languages: {}, preferred_roles: [], preferred_locations: [], expected_salary: "", remote_preference: "hybrid" };
 
 export default function ProfilePage() {
@@ -26,6 +26,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -70,6 +71,20 @@ export default function ProfilePage() {
     finally { setUploading(false); event.target.value = ""; }
   }
 
+  async function downloadResume() {
+    if (!resume) return;
+    setDownloading(true); setError("");
+    try {
+      const blob = await apiBlob("/resume/file");
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = resume.filename;
+      document.body.appendChild(link); link.click(); link.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not download your stored resume."); }
+    finally { setDownloading(false); }
+  }
+
   const skills = resume?.structured_data.skills ?? profile.skills;
   return <>
     <PageHeading title="Candidate profile" description="One profile powers matching, documents, analytics, and interview preparation." actions={<Button onClick={save} disabled={loading || saving}>{saving ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : <Save data-icon="inline-start" />}{saving ? "Saving…" : "Save profile"}</Button>} />
@@ -86,8 +101,8 @@ export default function ProfilePage() {
       </CardContent></Card>
       <div className="flex flex-col gap-6">
         <Card><CardHeader><CardTitle>Resume</CardTitle><CardDescription>PDF · maximum 5 MB · selectable text required</CardDescription></CardHeader><CardContent>
-          <label className="block"><input className="sr-only" type="file" accept="application/pdf,.pdf" onChange={upload} disabled={uploading} /><span className="inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-md border bg-background px-4 text-sm font-medium hover:bg-accent">{uploading ? <LoaderCircle className="size-4 animate-spin" /> : <FileUp className="size-4" />}{uploading ? "Uploading…" : "Choose and upload PDF resume"}</span></label>
-          <p className="mt-3 text-xs text-muted-foreground">{resume ? `${resume.filename}${resume.created_at ? ` · Processed ${new Date(resume.created_at).toLocaleDateString()}` : " · Processed just now"}` : "No resume uploaded yet."}</p>
+          <div className="flex flex-col gap-2"><label className="block"><input className="sr-only" type="file" accept="application/pdf,.pdf" onChange={upload} disabled={uploading} /><span className="inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-md border bg-background px-4 text-sm font-medium hover:bg-accent">{uploading ? <LoaderCircle className="size-4 animate-spin" /> : <FileUp className="size-4" />}{uploading ? "Uploading…" : "Choose and upload PDF resume"}</span></label>{resume?.stored ? <Button type="button" variant="outline" onClick={downloadResume} disabled={downloading}>{downloading ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : <Download data-icon="inline-start" />}{downloading ? "Downloading…" : "Download stored PDF"}</Button> : null}</div>
+          <p className="mt-3 text-xs text-muted-foreground">{resume ? `${resume.filename}${resume.file_size ? ` · ${(resume.file_size / 1024).toFixed(1)} KB` : ""}${resume.created_at ? ` · Stored ${new Date(resume.created_at).toLocaleDateString()}` : " · Stored just now"}` : "No resume uploaded yet."}</p>
         </CardContent></Card>
         <Card><CardHeader><CardTitle>Extracted skills</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">{skills.length ? skills.map(skill => <Badge key={skill} variant="secondary">{skill}</Badge>) : <p className="text-sm text-muted-foreground">Upload a PDF resume to extract skills.</p>}</CardContent></Card>
       </div>

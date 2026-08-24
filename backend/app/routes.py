@@ -2,8 +2,10 @@ import json
 from datetime import UTC, datetime
 from io import BytesIO
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl
 from pypdf import PdfReader
 from sqlalchemy import desc, func, or_, select
@@ -19,6 +21,7 @@ from app.database import (
     JobMatch,
     Profile,
     Resume,
+    ResumeFile,
     SkillStatistic,
     User,
     WorkflowRun,
@@ -116,6 +119,8 @@ async def post_resume(file:UploadFile=File(...),user:User=Depends(current_user),
     except Exception: raise HTTPException(422,"Unreadable PDF") from None
     if not text.strip(): raise HTTPException(422,"PDF contains no extractable text")
     structured=extract_resume(text); resume=Resume(user_id=user.id,filename=file.filename or "resume.pdf",content_type=file.content_type,extracted_text=text,structured_data=structured); db.add(resume)
+    await db.flush()
+    db.add(ResumeFile(resume_id=resume.id,data=content,size=len(content)))
     profile=await db.scalar(select(Profile).where(Profile.user_id==user.id))
     if profile:
         profile.skills=list(dict.fromkeys([*profile.skills,*structured["skills"]]))
@@ -124,12 +129,19 @@ async def post_resume(file:UploadFile=File(...),user:User=Depends(current_user),
     await db.commit()
     try: job_scan=await scan_public_jobs(profile,db) if profile else {"found":0,"imported":0,"matched":0,"skills_used":[]}
     except Exception as error: job_scan={"found":0,"imported":0,"matched":0,"skills_used":structured["skills"],"error":f"Public job scan unavailable: {type(error).__name__}"}
-    return {"id":resume.id,"filename":resume.filename,"characters":len(text),"structured_data":structured,"job_scan":job_scan}
+    return {"id":resume.id,"filename":resume.filename,"characters":len(text),"structured_data":structured,"created_at":resume.created_at,"stored":True,"file_size":len(content),"download_url":"/api/v1/resume/file","job_scan":job_scan}
 @router.get("/resume")
 async def get_resume(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
     resume=await db.scalar(select(Resume).where(Resume.user_id==user.id).order_by(desc(Resume.created_at)))
     if not resume: raise HTTPException(404,"Resume not found")
-    return {"id":resume.id,"filename":resume.filename,"structured_data":resume.structured_data,"created_at":resume.created_at}
+    stored=await db.get(ResumeFile,resume.id)
+    return {"id":resume.id,"filename":resume.filename,"structured_data":resume.structured_data,"created_at":resume.created_at,"stored":stored is not None,"file_size":stored.size if stored else None,"download_url":"/api/v1/resume/file" if stored else None}
+@router.get("/resume/file")
+async def get_resume_file(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+    row=(await db.execute(select(Resume,ResumeFile).join(ResumeFile,ResumeFile.resume_id==Resume.id).where(Resume.user_id==user.id).order_by(desc(Resume.created_at)).limit(1))).first()
+    if not row: raise HTTPException(404,"Stored resume PDF not found")
+    resume,stored=row
+    return Response(content=stored.data,media_type=resume.content_type,headers={"Content-Disposition":f"attachment; filename*=UTF-8''{quote(resume.filename)}","Content-Length":str(stored.size)})
 @router.get("/jobs",response_model=list[JobOut])
 async def jobs(q:str="",location:str="",category:str="",remote:str="",minimum_match:float=Query(0,ge=0,le=100),limit:int=Query(50,ge=1,le=100),user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
     statement=select(Job).order_by(desc(Job.posted_at)).limit(limit)

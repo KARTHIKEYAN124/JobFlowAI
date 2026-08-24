@@ -11,6 +11,11 @@ function authHeaders(headers?: HeadersInit): Headers {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}/api/v1${path}`, init);
+  await ensureSuccess(response);
+  return response.json() as Promise<T>;
+}
+
+async function ensureSuccess(response: Response): Promise<void> {
   if (!response.ok) {
     if (response.status === 401) {
       throw new Error("Please sign in to continue.");
@@ -18,7 +23,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => ({ detail: "Request failed" }));
     throw new Error(body.detail ?? `Request failed (${response.status})`);
   }
-  return response.json() as Promise<T>;
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -37,6 +41,14 @@ export async function apiForm<T>(path: string, formData: FormData, init?: Reques
     body: formData,
     headers: authHeaders(init?.headers),
   });
+}
+
+export async function apiBlob(path: string): Promise<Blob> {
+  const response = await fetch(`${API_URL}/api/v1${path}`, {
+    headers: authHeaders(),
+  });
+  await ensureSuccess(response);
+  return response.blob();
 }
 
 export type TokenResponse = { access_token: string; token_type: "bearer" };

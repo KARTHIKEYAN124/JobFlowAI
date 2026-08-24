@@ -15,7 +15,7 @@ This division keeps the portfolio credible as a software-engineering system: n8n
 
 ## Data model
 
-The SQLAlchemy schema implements `users`, `profiles`, `resumes`, `job_sources`, `companies`, `jobs`, `job_matches`, `applications`, `application_documents`, `workflow_runs`, `notifications`, and `skill_statistics`. Skills are represented as normalized JSON arrays in the MVP; pgvector is enabled for production embeddings, and the Compose stack also includes Qdrant for a dedicated index.
+The SQLAlchemy schema implements `users`, `profiles`, `resumes`, `resume_files`, `job_sources`, `companies`, `jobs`, `job_matches`, `applications`, `application_documents`, `workflow_runs`, `notifications`, and `skill_statistics`. `resume_files` preserves the exact authenticated PDF separately from extracted metadata. Skills are represented as normalized JSON arrays in the MVP; pgvector is enabled for production embeddings, and the Compose stack also includes Qdrant for a dedicated index.
 
 ## Matching model
 
@@ -55,4 +55,3 @@ FastAPI exports Prometheus HTTP request count, status, and latency metrics at `/
 ## Production evolution
 
 Use Cloudflare → reverse proxy → Next.js/FastAPI, managed PostgreSQL and Redis, Qdrant Cloud or pgvector, one n8n main plus horizontally scaled workers, external object storage for resumes, and distinct staging/production credentials. CI builds and tests both application layers before deployment.
-

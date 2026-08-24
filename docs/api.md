@@ -17,6 +17,7 @@ Authenticated endpoints require `Authorization: Bearer <token>`.
 |---|---|---|
 | GET/PUT | `/profile` | Read/update structured profile and searchable text |
 | POST/GET | `/resume` | Validate, parse, store/read latest PDF extraction |
+| GET | `/resume/file` | Download the authenticated user's latest stored original PDF |
 
 ## Jobs and matching
 
