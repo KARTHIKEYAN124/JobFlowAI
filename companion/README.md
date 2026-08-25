@@ -1,6 +1,6 @@
 # JobFlow AI Companion
 
-The companion runs in the candidate's own Chrome/Edge browser. It supports public Greenhouse and Lever application pages, fills reviewed JobFlow details, attaches the verified tailored PDF when the portal permits it, highlights unanswered required fields, and waits for an explicit confirmation before clicking the portal's submit button.
+The companion runs in the candidate's own Chrome/Edge browser. It supports public Greenhouse, Lever, Ashby, and SmartRecruiters application pages, fills reviewed JobFlow details, attaches the verified tailored PDF when the portal permits it, highlights unanswered required fields, and waits for an explicit confirmation before clicking the portal's submit button.
 
 ## Install locally
 

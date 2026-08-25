@@ -43,7 +43,7 @@ The final score is `0.65 × deterministic + 0.35 × semantic`. The local semanti
 - Per-client API, authentication, and webhook rate limits
 - Pydantic validation and SQLAlchemy parameterization
 - PDF MIME/extension checks, 5 MB limit, parser rejection, authenticated storage, and verified-content-only tailoring
-- Whitelisted Greenhouse/Lever public APIs, short-lived portal tokens, and explicit candidate confirmation before submission
+- Whitelisted Greenhouse, Lever, Ashby, and SmartRecruiters public APIs, short-lived portal tokens, and explicit candidate confirmation before submission
 - Credentials stored in environment variables or n8n's encrypted credential store
 - Human approval invariant before `APPLIED`
 

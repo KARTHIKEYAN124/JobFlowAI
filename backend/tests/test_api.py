@@ -93,3 +93,36 @@ def test_portal_session_requires_review_and_records_confirmed_submission():
         submitted=client.post(f"/api/v1/portal-sessions/{token}/submitted")
         assert submitted.status_code==200
         assert submitted.json()["status"]=="APPLIED"
+
+
+def test_dashboard_uses_current_user_application_data():
+    with TestClient(app) as client:
+        email=f"dashboard-{uuid.uuid4().hex}@example.com"
+        registration=client.post("/api/v1/auth/register",json={"email":email,"password":"verification-password","full_name":"Dashboard Test"})
+        headers={"Authorization":f"Bearer {registration.json()['access_token']}"}
+        before=client.get("/api/v1/analytics/dashboard",headers=headers)
+        assert before.status_code==200
+        assert before.json()["applications"]==0
+        job_id=client.get("/api/v1/jobs",headers=headers).json()[0]["id"]
+        created=client.post("/api/v1/applications",headers=headers,json={"job_id":job_id})
+        assert created.status_code==201
+        after=client.get("/api/v1/analytics/dashboard",headers=headers).json()
+        assert after["applications"]==1
+        assert after["pipeline"]["PREPARING"]==1
+        assert after["recent_applications"][0]["job_id"]==job_id
+
+
+def test_existing_portal_job_is_matched_for_each_user(monkeypatch):
+    external_id=f"ashby:test:{uuid.uuid4().hex}"
+    async def fake_portal_job(_):
+        return {"external_id":external_id,"title":"Python Engineer","company_name":"Acme","location":"Remote","description_text":"Build Python and FastAPI services for production systems.","application_url":"https://jobs.ashbyhq.com/acme/test","source":"Ashby public Job Board API","posted_at":"2026-08-25T10:00:00Z"}
+    monkeypatch.setattr(routes,"fetch_portal_job",fake_portal_job)
+    with TestClient(app) as client:
+        for index in range(2):
+            email=f"existing-job-{index}-{uuid.uuid4().hex}@example.com"
+            registration=client.post("/api/v1/auth/register",json={"email":email,"password":"verification-password","full_name":"Match Test"})
+            headers={"Authorization":f"Bearer {registration.json()['access_token']}"}
+            imported=client.post("/api/v1/jobs/import-url",headers=headers,json={"url":"https://jobs.ashbyhq.com/acme/test"})
+            assert imported.status_code==201
+            matches=client.get("/api/v1/matches",headers=headers).json()
+            assert any(match["job_id"]==imported.json()["id"] for match in matches)

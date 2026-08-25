@@ -74,18 +74,21 @@ async def scan_public_jobs(profile:Profile,db:AsyncSession) -> dict:
     matched=0
     for item in discovered:
         external_id=str(item["slug"])
-        target=await db.scalar(select(Job).where(Job.source=="Arbeitnow public API",Job.external_id==external_id))
+        source=item.get("source") or "Public job feed"
+        target=await db.scalar(select(Job).where(Job.source==source,Job.external_id==external_id))
         if not target:
             description=item["description_text"]
             required=[skill for skill in KNOWN_SKILLS if skill.lower() in description.lower()]
             category,_=classify(item.get("title", ""),description)
+            created_at=item.get("created_at") or 0
+            posted_at=datetime.fromtimestamp(created_at,UTC).replace(tzinfo=None) if created_at else datetime.now(UTC).replace(tzinfo=None)
             target=Job(
                 external_id=external_id,company_name=item.get("company_name") or "Unknown company",
                 title=item.get("title") or "Untitled role",description=description,
                 location=item.get("location") or ("Remote" if item.get("remote") else "Germany"),
                 remote_type="remote" if item.get("remote") else "onsite",
                 employment_type=(item.get("job_types") or ["unspecified"])[0],category=category,
-                posted_at=datetime.fromtimestamp(item.get("created_at") or 0, UTC).replace(tzinfo=None),source="Arbeitnow public API",
+                posted_at=posted_at,source=source,
                 application_url=item.get("url") or "https://www.arbeitnow.com/",
                 required_skills=required,preferred_skills=item.get("tags") or [],
                 language_requirements={},embedding=embed(description),
@@ -98,7 +101,8 @@ async def scan_public_jobs(profile:Profile,db:AsyncSession) -> dict:
         else: db.add(JobMatch(user_id=profile.user_id,job_id=target.id,**values))
         matched+=1
     await db.commit()
-    return {"source":"Arbeitnow public job-board API","found":len(discovered),"imported":imported,"matched":matched,"skills_used":profile.skills}
+    sources=sorted({item.get("source") or "Public job feed" for item in discovered})
+    return {"source":", ".join(sources) or "public job feeds","sources":sources,"found":len(discovered),"imported":imported,"matched":matched,"skills_used":profile.skills}
 
 @router.post("/auth/register",response_model=Token,status_code=201)
 async def register(data:Register,db:AsyncSession=Depends(get_db)):
@@ -176,7 +180,16 @@ async def import_job_url(data:JobURL,user:User=Depends(current_user),db:AsyncSes
     except ValueError as error: raise HTTPException(422,str(error)) from None
     except Exception as error: raise HTTPException(502,f"Job portal lookup failed: {type(error).__name__}") from None
     existing=await db.scalar(select(Job).where(Job.source==item["source"],Job.external_id==item["external_id"]))
-    if existing: return existing
+    if existing:
+        profile=await db.scalar(select(Profile).where(Profile.user_id==user.id))
+        if profile:
+            values=score_match(profile,existing)
+            match_result=await db.scalar(select(JobMatch).where(JobMatch.user_id==user.id,JobMatch.job_id==existing.id))
+            if match_result:
+                for key,value in values.items(): setattr(match_result,key,value)
+            else: db.add(JobMatch(user_id=user.id,job_id=existing.id,**values))
+            await db.commit()
+        return existing
     description=item["description_text"]
     if len(description)<20: raise HTTPException(422,"Job portal returned an incomplete description")
     raw_posted=item.get("posted_at"); posted_at=datetime.now(UTC).replace(tzinfo=None)
@@ -289,7 +302,25 @@ async def analytics_skills(_:User=Depends(current_user),db:AsyncSession=Depends(
 @router.get("/analytics/dashboard")
 async def dashboard(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
     async def count(statement): return await db.scalar(statement) or 0
-    return {"new_jobs":await count(select(func.count()).select_from(Job)),"high_matches":await count(select(func.count()).select_from(JobMatch).where(JobMatch.user_id==user.id,JobMatch.overall_score>=80)),"applications":await count(select(func.count()).select_from(Application).where(Application.user_id==user.id)),"interviews":await count(select(func.count()).select_from(Application).where(Application.user_id==user.id,Application.status==ApplicationStatus.INTERVIEW)),"offers":await count(select(func.count()).select_from(Application).where(Application.user_id==user.id,Application.status==ApplicationStatus.OFFER))}
+    pipeline={status.value:0 for status in ApplicationStatus}
+    for status,total in (await db.execute(select(Application.status,func.count(Application.id)).where(Application.user_id==user.id).group_by(Application.status))).all(): pipeline[status.value]=total
+    recent_rows=(await db.execute(select(Application,Job).join(Job,Job.id==Application.job_id).where(Application.user_id==user.id).order_by(desc(Application.updated_at)).limit(5))).all()
+    match_rows=(await db.execute(select(JobMatch,Job).join(Job,Job.id==JobMatch.job_id).where(JobMatch.user_id==user.id).order_by(desc(JobMatch.overall_score)))).all()
+    gap_counts:dict[str,int]={}
+    for match_result,_ in match_rows:
+        for skill in match_result.missing_skills: gap_counts[skill]=gap_counts.get(skill,0)+1
+    scored=len(match_rows)
+    priority=[{"id":job.id,"title":job.title,"company_name":job.company_name,"location":job.location,"remote_type":job.remote_type,"category":job.category,"posted_at":job.posted_at,"required_skills":job.required_skills,"overall_score":match_result.overall_score,"matched_skills":match_result.matched_skills,"missing_skills":match_result.missing_skills} for match_result,job in match_rows[:3]]
+    recent=[{"id":application.id,"job_id":job.id,"title":job.title,"company_name":job.company_name,"status":application.status.value,"updated_at":application.updated_at} for application,job in recent_rows]
+    return {
+        "total_jobs":await count(select(func.count()).select_from(Job)),
+        "new_jobs":await count(select(func.count()).select_from(Job).where(Job.created_at>=datetime.utcnow()-timedelta(days=1))),
+        "high_matches":sum(1 for match_result,_ in match_rows if match_result.overall_score>=80),
+        "scored_jobs":scored,"applications":sum(pipeline.values()),"ready":pipeline[ApplicationStatus.READY.value],
+        "interviews":pipeline[ApplicationStatus.INTERVIEW.value],"offers":pipeline[ApplicationStatus.OFFER.value],
+        "pipeline":pipeline,"priority_matches":priority,"recent_applications":recent,
+        "skill_gaps":[{"skill":skill,"count":total,"percentage":round(total/scored*100) if scored else 0} for skill,total in sorted(gap_counts.items(),key=lambda item:(-item[1],item[0]))[:5]],
+    }
 @router.post("/webhooks/n8n/job",dependencies=[Depends(verify_webhook)],status_code=201)
 async def ingest(data:JobIn,db:AsyncSession=Depends(get_db)):
     existing=await db.scalar(select(Job).where(Job.source==data.source,Job.external_id==data.external_id))
