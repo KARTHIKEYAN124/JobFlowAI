@@ -7,7 +7,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api";
+import { api, clearSession, hasUsableSession } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -32,7 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (publicPage) {
       return;
     }
-    if (!window.sessionStorage.getItem("jobflow_token")) {
+    if (!hasUsableSession()) {
       router.replace("/auth/sign-in");
       return;
     }
@@ -44,7 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       const profile = (event as CustomEvent<Candidate>).detail;
       setCandidate({ full_name: profile.full_name || "Candidate", headline: profile.headline || "Complete your profile" });
     }
-    if (window.sessionStorage.getItem("jobflow_token")) {
+    if (hasUsableSession()) {
       void api<Candidate>("/profile").then(profile => update(new CustomEvent("profile", { detail: profile }))).catch(() => undefined);
     }
     window.addEventListener("jobflow-profile-updated", update);
@@ -59,7 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.push(query ? `/jobs?q=${encodeURIComponent(query)}` : "/jobs");
   }
   function signOut() {
-    window.sessionStorage.removeItem("jobflow_token");
+    clearSession();
     router.replace("/auth/sign-in");
   }
   const initials = candidate.full_name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "C";

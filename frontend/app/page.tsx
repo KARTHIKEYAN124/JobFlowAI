@@ -3,12 +3,13 @@
 import { Bot } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { hasUsableSession } from "@/lib/api";
 
 export default function EntryPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const destination = window.sessionStorage.getItem("jobflow_token")
+    const destination = hasUsableSession()
       ? "/dashboard"
       : "/auth/sign-up";
     router.replace(destination);
