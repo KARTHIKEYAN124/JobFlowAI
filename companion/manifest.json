@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "JobFlow AI Companion",
-  "version": "1.0.0",
-  "description": "Fills reviewed JobFlow application details on supported job portals.",
+  "version": "1.1.0",
+  "description": "Fills reviewed application details and collects unanswered employer questions.",
   "permissions": [],
   "host_permissions": [
     "https://jobflow-ai-delta.vercel.app/*"

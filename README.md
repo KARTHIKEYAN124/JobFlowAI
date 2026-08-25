@@ -97,7 +97,7 @@ Internet discovery uses documented or public job APIs rather than arbitrary webs
 
 ### Job portal companion
 
-The unpacked extension in `companion/` supports public Greenhouse, Lever, Ashby, and SmartRecruiters application pages. Install it from `chrome://extensions` or `edge://extensions` using **Developer mode → Load unpacked**. After generating and reviewing an application, select **Fill on job portal**. A short-lived 20-minute token opens the employer URL; the companion fills known fields, attaches an ATS-readable tailored PDF made only from verified resume text, highlights missing required answers, and waits for an explicit confirmation before clicking submit. It never bypasses CAPTCHA/MFA or stores employer credentials.
+The unpacked extension in `companion/` supports public Greenhouse, Lever, Ashby, and SmartRecruiters application pages. Install it from `chrome://extensions` or `edge://extensions` using **Developer mode → Load unpacked**. After generating and reviewing an application, select **Fill on job portal**. A short-lived 20-minute token opens the employer URL; the companion fills known fields, attaches an ATS-readable tailored PDF made only from verified resume text, and asks for every visible unanswered portal field using the employer's real options. It highlights missing required answers and waits for an explicit confirmation before clicking submit. It never bypasses CAPTCHA/MFA, invents qualifications, or stores employer credentials.
 
 If a page shows `ERR_CONNECTION_REFUSED`, run `docker compose ps`. Then start or rebuild missing services with `docker compose up --build -d`. A first Docker image download can be retried after a TLS timeout with `docker compose pull` followed by the start command.
 
