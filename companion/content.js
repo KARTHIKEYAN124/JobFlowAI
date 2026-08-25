@@ -1,6 +1,10 @@
-(() => {
+void (async () => {
   const launch = new URLSearchParams(window.location.hash.slice(1));
-  const token = launch.get("jobflow");
+  let token = launch.get("jobflow");
+  if (!token) {
+    const claimed = await new Promise(resolve => chrome.runtime.sendMessage({ type: "CLAIM_LAUNCH" }, resolve));
+    token = claimed?.ok ? claimed.token : null;
+  }
   if (!token) return;
   history.replaceState(null, "", `${location.pathname}${location.search}`);
 
@@ -214,7 +218,13 @@
       showMessage("JobFlow could not start", response?.error || "Unknown error");
       return;
     }
-    window.setTimeout(() => {
+    let attempts = 0;
+    const fillWhenReady = () => {
+      if (supportedControls().length < 2 && attempts < 30) {
+        attempts += 1;
+        window.setTimeout(fillWhenReady, 300);
+        return;
+      }
       const data = response.applicationPackage;
       const candidate = data.candidate || {};
       const answers = data.answers || {};
@@ -249,6 +259,7 @@
       highlight(questions.filter(control => control.required));
       if (questions.length) renderQuestions(questions, filled, resumeAttached);
       else renderSubmitReview(filled, resumeAttached);
-    }, 500);
+    };
+    window.setTimeout(fillWhenReady, 300);
   });
 })();

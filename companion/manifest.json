@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "JobFlow AI Companion",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Fills reviewed application details and collects unanswered employer questions.",
-  "permissions": [],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://jobflow-ai-delta.vercel.app/*"
   ],
@@ -11,6 +11,11 @@
     "service_worker": "background.js"
   },
   "content_scripts": [
+    {
+      "matches": ["https://jobflow-ai-delta.vercel.app/portal-launch*"],
+      "js": ["launch.js"],
+      "run_at": "document_start"
+    },
     {
       "matches": [
         "https://boards.greenhouse.io/*",

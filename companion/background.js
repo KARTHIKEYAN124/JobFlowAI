@@ -2,6 +2,30 @@ const API_ORIGIN = "https://jobflow-ai-delta.vercel.app";
 const API_BASE = `${API_ORIGIN}/backend/api/v1`;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "STORE_LAUNCH") {
+    const tabId = _sender.tab?.id;
+    if (tabId === undefined || !message.token) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    chrome.storage.session.set({ [`launch_${tabId}`]: { token: message.token, expiresAt: Date.now() + 20 * 60 * 1000 } })
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+  if (message.type === "CLAIM_LAUNCH") {
+    const tabId = _sender.tab?.id;
+    if (tabId === undefined) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    const key = `launch_${tabId}`;
+    chrome.storage.session.get(key).then(result => {
+      const launch = result[key];
+      return chrome.storage.session.remove(key).then(() => sendResponse({ ok: Boolean(launch?.token && launch.expiresAt > Date.now()), token: launch?.expiresAt > Date.now() ? launch.token : null }));
+    }).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message.type === "FETCH_PACKAGE") {
     fetch(`${API_BASE}/portal-sessions/${encodeURIComponent(message.token)}`)
       .then(async response => {

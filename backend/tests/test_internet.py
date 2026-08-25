@@ -14,6 +14,7 @@ async def test_fetch_greenhouse_job_uses_public_api(monkeypatch):
     result=await fetch_portal_job("https://job-boards.greenhouse.io/acme/jobs/123")
     assert result["source"]=="Greenhouse public Job Board API"
     assert result["description_text"]=="Python and FastAPI"
+    assert result["application_url"]=="https://job-boards.greenhouse.io/acme/jobs/123"
 
 
 @pytest.mark.asyncio

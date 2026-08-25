@@ -47,7 +47,9 @@ export function ApplicationWizard({ jobId }: { jobId: string }) {
     setLaunching(true); setError("");
     try {
       const launch = await api<PortalLaunch>(`/applications/${applicationId}/portal-session`, { method: "POST" });
-      window.open(launch.portal_url, "_blank", "noopener,noreferrer");
+      const bridge = new URL("/portal-launch", window.location.origin);
+      bridge.hash = new URLSearchParams({ target: launch.portal_url }).toString();
+      window.open(bridge.toString(), "_blank", "noopener,noreferrer");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not open the employer portal."); }
     finally { setLaunching(false); }
   }

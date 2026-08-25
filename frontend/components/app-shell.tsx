@@ -26,7 +26,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [authorizedPath, setAuthorizedPath] = useState("");
   const [candidate, setCandidate] = useState<Candidate>({ full_name: "Candidate", headline: "Complete your profile" });
 
-  const publicPage = pathname === "/" || pathname.startsWith("/auth/");
+  const publicPage = pathname === "/" || pathname === "/portal-launch" || pathname.startsWith("/auth/");
 
   useEffect(() => {
     if (publicPage) {

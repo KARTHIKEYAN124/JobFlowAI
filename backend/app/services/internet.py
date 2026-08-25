@@ -119,7 +119,7 @@ async def fetch_portal_job(value: str) -> dict:
             "company_name": board.replace("-", " ").title(),
             "location": (payload.get("location") or {}).get("name") or "Unspecified",
             "description_text": description,
-            "application_url": payload.get("absolute_url") or value,
+            "application_url": f"https://job-boards.greenhouse.io/{board}/jobs/{job_id}",
             "source": "Greenhouse public Job Board API",
             "posted_at": payload.get("updated_at"),
         }
