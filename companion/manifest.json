@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "JobFlow AI Companion",
+  "version": "1.0.0",
+  "description": "Fills reviewed JobFlow application details on supported job portals.",
+  "permissions": [],
+  "host_permissions": [
+    "https://jobflow-ai-delta.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://jobs.lever.co/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

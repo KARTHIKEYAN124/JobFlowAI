@@ -1,5 +1,30 @@
-from app.services.internet import plain_text
+import pytest
+
+from app.services import internet
+from app.services.internet import fetch_portal_job, plain_text
 
 
 def test_plain_text_decodes_and_removes_job_feed_markup():
     assert plain_text("&lt;p&gt;Python &amp;amp; FastAPI&lt;/p&gt;") == "Python & FastAPI"
+
+
+@pytest.mark.asyncio
+async def test_fetch_greenhouse_job_uses_public_api(monkeypatch):
+    monkeypatch.setattr(internet,"_json",lambda url:{"title":"Backend Engineer","content":"<p>Python and FastAPI</p>","location":{"name":"Berlin"},"absolute_url":"https://job-boards.greenhouse.io/acme/jobs/123","updated_at":"2026-08-25T10:00:00Z"})
+    result=await fetch_portal_job("https://job-boards.greenhouse.io/acme/jobs/123")
+    assert result["source"]=="Greenhouse public Job Board API"
+    assert result["description_text"]=="Python and FastAPI"
+
+
+@pytest.mark.asyncio
+async def test_fetch_lever_job_uses_public_api(monkeypatch):
+    monkeypatch.setattr(internet,"_json",lambda url:{"text":"AI Engineer","descriptionPlain":"Build Python systems","categories":{"location":"Remote"},"hostedUrl":"https://jobs.lever.co/acme/abc","createdAt":1787652000000})
+    result=await fetch_portal_job("https://jobs.lever.co/acme/abc")
+    assert result["source"]=="Lever public Postings API"
+    assert result["location"]=="Remote"
+
+
+@pytest.mark.asyncio
+async def test_fetch_portal_job_rejects_unknown_hosts():
+    with pytest.raises(ValueError,match="Greenhouse and Lever"):
+        await fetch_portal_job("https://example.com/jobs/123")

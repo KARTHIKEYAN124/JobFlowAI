@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { LoaderCircle, RefreshCw, Search } from "lucide-react";
+import { Link2, LoaderCircle, RefreshCw, Search } from "lucide-react";
 import { JobRow, type Job as JobView } from "@/components/job-row";
 import { PageHeading } from "@/components/page-heading";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,8 @@ export default function JobsPage() {
   const [category, setCategory] = useState("");
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [portalUrl, setPortalUrl] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -49,11 +51,23 @@ export default function JobsPage() {
     finally { setScanning(false); }
   }
 
+  async function importPortalJob() {
+    if (!portalUrl.trim()) return;
+    setImporting(true); setError(""); setMessage("");
+    try {
+      const imported = await api<ApiJob>("/jobs/import-url", { method: "POST", body: JSON.stringify({ url: portalUrl.trim() }) });
+      setMessage(`Imported ${imported.title} from its public job portal and calculated your match.`);
+      setPortalUrl(""); await load();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not import this portal job."); }
+    finally { setImporting(false); }
+  }
+
   const filtered = useMemo(() => jobs.filter(job => job.score >= minimum && (!location || job.location.toLowerCase().includes(location)) && (!category || job.category === category) && `${job.title} ${job.company} ${job.skills.join(" ")}`.toLowerCase().includes(query.toLowerCase())), [jobs, query, minimum, location, category]);
   return <>
     <PageHeading title="Jobs" description="Fresh, deduplicated opportunities from approved public sources." actions={<Button variant="outline" onClick={scan} disabled={scanning}>{scanning ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}{scanning ? "Scanning internet…" : "Scan public jobs"}</Button>} />
     {error ? <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
     {message ? <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" role="status">{message}</p> : null}
+    <Card className="mb-6"><CardHeader><CardTitle>Import a real portal job</CardTitle></CardHeader><CardContent><div className="flex flex-col gap-3 md:flex-row"><Input type="url" value={portalUrl} onChange={event => setPortalUrl(event.target.value)} placeholder="Paste a public Greenhouse or Lever job URL" aria-label="Public job portal URL" /><Button type="button" onClick={importPortalJob} disabled={importing || !portalUrl.trim()}>{importing ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : <Link2 data-icon="inline-start" />}{importing ? "Importing…" : "Fetch job details"}</Button></div><p className="mt-3 text-xs text-muted-foreground">JobFlow uses documented public Greenhouse and Lever APIs and keeps the employer&apos;s original application URL.</p></CardContent></Card>
     <Card><CardHeader><CardTitle>{loading ? "Loading opportunities…" : `${filtered.length} opportunities`}</CardTitle><div className="mt-4 grid gap-3 md:grid-cols-[1fr_repeat(3,180px)]"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Role, company, technology…" value={query} onChange={event => setQuery(event.target.value)} /></div><select className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Location" value={location} onChange={event => setLocation(event.target.value)}><option value="">All locations</option><option value="berlin">Berlin</option><option value="remote">Remote</option></select><select className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Role" value={category} onChange={event => setCategory(event.target.value)}><option value="">All roles</option><option value="BACKEND">Backend</option><option value="AI">AI</option><option value="CLOUD">Cloud</option><option value="FULLSTACK">Full stack</option></select><select className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Minimum match" value={minimum} onChange={event => setMinimum(Number(event.target.value))}><option value="0">Any match</option><option value="65">65% and above</option><option value="80">80% and above</option></select></div></CardHeader><CardContent>{loading ? <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Loading jobs…</div> : filtered.length ? filtered.map(job => <JobRow key={job.id} job={job} />) : <p className="py-10 text-center text-sm text-muted-foreground">No jobs match these filters. Upload your resume or run a public job scan.</p>}</CardContent></Card>
   </>;
 }

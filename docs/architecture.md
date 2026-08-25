@@ -15,7 +15,7 @@ This division keeps the portfolio credible as a software-engineering system: n8n
 
 ## Data model
 
-The SQLAlchemy schema implements `users`, `profiles`, `resumes`, `resume_files`, `job_sources`, `companies`, `jobs`, `job_matches`, `applications`, `application_documents`, `workflow_runs`, `notifications`, and `skill_statistics`. `resume_files` preserves the exact authenticated PDF separately from extracted metadata. Skills are represented as normalized JSON arrays in the MVP; pgvector is enabled for production embeddings, and the Compose stack also includes Qdrant for a dedicated index.
+The SQLAlchemy schema implements `users`, `profiles`, `resumes`, `resume_files`, `job_sources`, `companies`, `jobs`, `job_matches`, `applications`, `application_documents`, `portal_sessions`, `workflow_runs`, `notifications`, and `skill_statistics`. `resume_files` preserves the exact authenticated PDF separately from extracted metadata. `portal_sessions` stores hashes of short-lived launch tokens rather than browser or employer credentials. Skills are represented as normalized JSON arrays in the MVP; pgvector is enabled for production embeddings, and the Compose stack also includes Qdrant for a dedicated index.
 
 ## Matching model
 
@@ -42,7 +42,8 @@ The final score is `0.65 × deterministic + 0.35 × semantic`. The local semanti
 - Tight CORS allowlist and security response headers
 - Per-client API, authentication, and webhook rate limits
 - Pydantic validation and SQLAlchemy parameterization
-- PDF MIME/extension checks, 5 MB limit, parser rejection, no persistent raw upload
+- PDF MIME/extension checks, 5 MB limit, parser rejection, authenticated storage, and verified-content-only tailoring
+- Whitelisted Greenhouse/Lever public APIs, short-lived portal tokens, and explicit candidate confirmation before submission
 - Credentials stored in environment variables or n8n's encrypted credential store
 - Human approval invariant before `APPLIED`
 

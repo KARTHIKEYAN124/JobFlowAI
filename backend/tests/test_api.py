@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from fastapi.testclient import TestClient
@@ -70,3 +71,25 @@ def test_uploaded_resume_pdf_is_stored_and_downloadable(monkeypatch):
         assert downloaded.content == pdf_content
         assert downloaded.headers["content-type"] == "application/pdf"
         assert "candidate.pdf" in downloaded.headers["content-disposition"]
+
+
+def test_portal_session_requires_review_and_records_confirmed_submission():
+    with TestClient(app) as client:
+        email=f"portal-{uuid.uuid4().hex}@example.com"
+        registration=client.post("/api/v1/auth/register",json={"email":email,"password":"verification-password","full_name":"Portal Test"})
+        headers={"Authorization":f"Bearer {registration.json()['access_token']}"}
+        jobs=client.get("/api/v1/jobs",headers=headers).json()
+        application=client.post("/api/v1/applications",headers=headers,json={"job_id":jobs[0]["id"],"notes":json.dumps({"email":email,"phone":"123","truth_confirmation":"on","review_confirmation":"on"})})
+        app_id=application.json()["id"]
+        assert client.post(f"/api/v1/applications/{app_id}/portal-session",headers=headers).status_code==409
+        prepared=client.post("/api/v1/ai/application",headers=headers,json={"application_id":app_id})
+        assert prepared.status_code==200
+        launched=client.post(f"/api/v1/applications/{app_id}/portal-session",headers=headers)
+        assert launched.status_code==201
+        token=launched.json()["portal_url"].split("#jobflow=",1)[1]
+        package=client.get(f"/api/v1/portal-sessions/{token}")
+        assert package.status_code==200
+        assert package.json()["candidate"]["email"]==email
+        submitted=client.post(f"/api/v1/portal-sessions/{token}/submitted")
+        assert submitted.status_code==200
+        assert submitted.json()["status"]=="APPLIED"

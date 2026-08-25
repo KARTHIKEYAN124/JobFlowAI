@@ -9,7 +9,7 @@ The JSON files are versioned, separate, and intentionally inactive on import. Co
 | WF-03 | Requirement Extractor | Sub-workflow | Structured requirements and language extraction |
 | WF-04 | Job Matcher | Sub-workflow | Call FastAPI score service and route high/medium/low matches |
 | WF-05 | High-match Notification | Sub-workflow | Generate safe summary, notify, record delivery |
-| WF-06 | Application Generator | Webhook | Generate documents and enforce approval invariant |
+| WF-06 | Application Generator | Webhook | Generate verified documents, enforce review, and prepare a short-lived browser-companion handoff |
 | WF-07 | Follow-up | Daily | Find applications older than seven days and notify user |
 | WF-08 | Interview Prep | Webhook | Generate interview pack after `INTERVIEW` transition |
 | WF-09 | Skill Analytics | Nightly | Aggregate demand and gap statistics |
@@ -31,4 +31,3 @@ External requests use three total attempts: immediate, after 30 seconds, and aft
 ## Operations
 
 Monitor executions/failures, ingested jobs, notification outcomes, API/match latency, and—when a paid provider is enabled—token usage and estimated cost. Scale `n8n-worker` horizontally while keeping a single main instance; Redis coordinates the queue and PostgreSQL stores execution state.
-

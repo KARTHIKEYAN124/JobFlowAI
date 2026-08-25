@@ -108,6 +108,18 @@ class ApplicationDocument(Base):
     __tablename__="application_documents"; id: Mapped[str]=mapped_column(String(36),primary_key=True,default=uid); application_id: Mapped[str]=mapped_column(ForeignKey("applications.id"),index=True); document_type: Mapped[str]=mapped_column(String(40)); version: Mapped[int]=mapped_column(default=1); content: Mapped[str]=mapped_column(Text); created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
 
 
+class PortalSession(Base):
+    __tablename__="portal_sessions"
+    id: Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+    token_hash: Mapped[str]=mapped_column(String(64),unique=True,index=True)
+    application_id: Mapped[str]=mapped_column(ForeignKey("applications.id"),index=True)
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id"),index=True)
+    expires_at: Mapped[datetime]=mapped_column(DateTime)
+    created_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    last_used_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    submitted_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+
+
 class WorkflowRun(Base):
     __tablename__="workflow_runs"; id: Mapped[str]=mapped_column(String(36),primary_key=True,default=uid); workflow: Mapped[str]=mapped_column(String(160),index=True); execution_id: Mapped[str]=mapped_column(String(160),default=""); status: Mapped[str]=mapped_column(String(40)); error: Mapped[str]=mapped_column(Text,default=""); input_snapshot: Mapped[dict]=mapped_column(JSON,default=dict); started_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow); finished_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
 

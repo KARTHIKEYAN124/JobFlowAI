@@ -18,6 +18,11 @@ Authenticated endpoints require `Authorization: Bearer <token>`.
 | GET/PUT | `/profile` | Read/update structured profile and searchable text |
 | POST/GET | `/resume` | Validate, parse, store/read latest PDF extraction |
 | GET | `/resume/file` | Download the authenticated user's latest stored original PDF |
+| POST | `/jobs/import-url` | Fetch and store a whitelisted public Greenhouse or Lever posting URL |
+| POST | `/applications/{id}/portal-session` | Create a reviewed, short-lived portal autofill launch |
+| GET | `/portal-sessions/{token}` | Return the scoped application package to JobFlow Companion |
+| GET | `/portal-sessions/{token}/resume` | Return an ATS-readable tailored PDF using verified resume content only |
+| POST | `/portal-sessions/{token}/submitted` | Record the candidate-confirmed portal submission |
 
 ## Jobs and matching
 

@@ -10,6 +10,7 @@ JobFlow AI continuously collects permitted public job feeds, normalizes and dedu
 
 - Next.js 15 + TypeScript dashboard with Jobs, Matches, Applications, Skills, Analytics, Automations, Profile, and Settings routes
 - FastAPI REST API for registration, JWT login, profiles, validated PDF resumes, jobs, matching, applications, AI assistance, analytics, and signed n8n webhooks
+- Public Greenhouse/Lever job import plus a local browser companion that fills reviewed applications without storing portal credentials
 - Deterministic 100-point match model combined with semantic similarity at a documented 65/35 weighting
 - Skill-gap and market-demand analytics
 - Ten separate importable n8n workflows, including retry/error handling
@@ -69,7 +70,7 @@ Start at <http://localhost:3000/auth/sign-up> and create an account. The browser
 | `/auth/sign-up` | Create an account with your name, email, and a password of at least 10 characters. |
 | `/auth/sign-in` | Sign in to an existing account. Sign in again if a page says authentication is required. |
 | `/profile` | Edit your name, headline, target roles, locations, salary, and remote preference. Click **Save profile**. Uploading a text-based PDF stores the original file, extracts skills, scans the public Arbeitnow job-board API, imports relevant jobs, and calculates matches. The stored PDF can be downloaded from the same card. |
-| `/jobs` | Browse/filter imported opportunities or click **Scan public jobs** to refresh them. **Prepare application** opens a detailed form for contact information, work authorization, availability, salary, links, experience, motivation, and review consent before generating a draft. |
+| `/jobs` | Browse/filter imported opportunities, scan Arbeitnow, or paste a public Greenhouse/Lever posting URL to fetch the employer's current description. **Prepare application** opens a detailed form for contact information, work authorization, availability, salary, links, experience, motivation, and review consent before generating a draft. |
 | `/jobs/{id}` | Review one job, its source link, match score, skills, and gaps. **Prepare interview questions** searches the public Stack Exchange API and shows accepted Stack Overflow answers with citations. |
 | `/matches` | View ranked match results produced by the matching workflow/API. |
 | `/applications` | Review generated drafts, approve a READY application, and mark it APPLIED after you submit it externally. JobFlow never sends an application without you. |
@@ -93,6 +94,10 @@ Start at <http://localhost:3000/auth/sign-up> and create an account. The browser
 PostgreSQL on port `5432` and Redis on `6379` use database protocols, so opening them in a browser will not show a web page. Ollama on `11434` is an optional HTTP API enabled by the `local-ai` Compose profile; it also has no product dashboard.
 
 Internet discovery uses documented public APIs rather than arbitrary website scraping. Availability and coverage therefore depend on Arbeitnow and Stack Exchange, their rate limits, and the skills that can be extracted from the PDF. JobFlow stores the original posting URL and links every sourced interview answer back to Stack Overflow. Always verify community answers against current official documentation.
+
+### Job portal companion
+
+The unpacked extension in `companion/` supports public Greenhouse and Lever application pages. Install it from `chrome://extensions` or `edge://extensions` using **Developer mode → Load unpacked**. After generating and reviewing an application, select **Fill on job portal**. A short-lived 20-minute token opens the employer URL; the companion fills known fields, attaches an ATS-readable tailored PDF made only from verified resume text, highlights missing required answers, and waits for an explicit confirmation before clicking submit. It never bypasses CAPTCHA/MFA or stores employer credentials.
 
 If a page shows `ERR_CONNECTION_REFUSED`, run `docker compose ps`. Then start or rebuild missing services with `docker compose up --build -d`. A first Docker image download can be retried after a TLS timeout with `docker compose pull` followed by the start command.
 

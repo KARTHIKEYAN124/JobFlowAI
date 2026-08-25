@@ -2,11 +2,13 @@ import asyncio
 import html
 import json
 import re
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 ARBEITNOW_API = "https://www.arbeitnow.com/api/job-board-api"
 STACK_EXCHANGE_API = "https://api.stackexchange.com/2.3"
+GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards"
+LEVER_API = "https://api.lever.co/v0/postings"
 
 
 def _json(url: str) -> dict:
@@ -49,6 +51,47 @@ async def discover_jobs(skills: list[str], roles: list[str], pages: int = 2) -> 
         if len(results) == 20:
             break
     return results
+
+
+async def fetch_portal_job(value: str) -> dict:
+    """Fetch a posting through a documented public Greenhouse or Lever API."""
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    parts = [part for part in parsed.path.split("/") if part]
+    if host in {"boards.greenhouse.io", "job-boards.greenhouse.io"}:
+        if len(parts) < 3 or parts[-2] != "jobs":
+            raise ValueError("Greenhouse URL must identify a public job")
+        board, job_id = parts[0], parts[-1]
+        payload = await asyncio.to_thread(_json, f"{GREENHOUSE_API}/{board}/jobs/{job_id}?content=true")
+        description = plain_text(payload.get("content", ""))
+        return {
+            "external_id": f"greenhouse:{board}:{job_id}",
+            "title": payload.get("title") or "Untitled role",
+            "company_name": board.replace("-", " ").title(),
+            "location": (payload.get("location") or {}).get("name") or "Unspecified",
+            "description_text": description,
+            "application_url": payload.get("absolute_url") or value,
+            "source": "Greenhouse public Job Board API",
+            "posted_at": payload.get("updated_at"),
+        }
+    if host == "jobs.lever.co":
+        if len(parts) < 2:
+            raise ValueError("Lever URL must identify a public job")
+        company, posting_id = parts[0], parts[1]
+        payload = await asyncio.to_thread(_json, f"{LEVER_API}/{company}/{posting_id}")
+        description = plain_text(payload.get("descriptionPlain") or payload.get("description", ""))
+        return {
+            "external_id": f"lever:{company}:{posting_id}",
+            "title": payload.get("text") or "Untitled role",
+            "company_name": company.replace("-", " ").title(),
+            "location": (payload.get("categories") or {}).get("location") or "Unspecified",
+            "description_text": description,
+            # Open the actual form so the companion can fill it immediately.
+            "application_url": payload.get("applyUrl") or payload.get("hostedUrl") or value,
+            "source": "Lever public Postings API",
+            "posted_at": payload.get("createdAt"),
+        }
+    raise ValueError("Only public Greenhouse and Lever posting URLs are supported")
 
 
 async def sourced_interview_questions(skills: list[str], title: str) -> list[dict]:

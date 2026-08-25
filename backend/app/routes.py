@@ -1,5 +1,7 @@
+import hashlib
 import json
-from datetime import UTC, datetime
+import secrets
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from typing import Any
 from urllib.parse import quote
@@ -19,6 +21,7 @@ from app.database import (
     ApplicationStatus,
     Job,
     JobMatch,
+    PortalSession,
     Profile,
     Resume,
     ResumeFile,
@@ -28,9 +31,9 @@ from app.database import (
     get_db,
 )
 from app.security import create_token, current_user, hash_password, verify_password, verify_webhook
-from app.services.documents import application_pack, interview_pack
+from app.services.documents import application_pack, interview_pack, tailored_resume_pdf
 from app.services.embeddings import embed
-from app.services.internet import discover_jobs, sourced_interview_questions
+from app.services.internet import discover_jobs, fetch_portal_job, sourced_interview_questions
 from app.services.jobs import classify, searchable
 from app.services.matching import classification, score_match
 from app.services.resumes import KNOWN_SKILLS, extract_resume
@@ -45,6 +48,7 @@ class ProfileData(BaseModel):
 class ProfileOut(ProfileData,ORM): id:str; processed_at:datetime|None
 class JobIn(BaseModel):
     external_id:str; title:str=Field(min_length=2,max_length=240); company:str=Field(min_length=1,max_length=200); location:str; country:str="Germany"; description:str=Field(min_length=20); employment_type:str="working_student"; remote_type:str="hybrid"; posted_at:datetime; application_url:HttpUrl; source:str; required_skills:list[str]=Field(default_factory=list); preferred_skills:list[str]=Field(default_factory=list); language_requirements:dict[str,str]=Field(default_factory=dict)
+class JobURL(BaseModel): url:HttpUrl
 class JobOut(ORM):
     id:str; external_id:str; title:str; company_name:str; location:str; country:str; description:str; remote_type:str; employment_type:str; category:str; posted_at:datetime; source:str; application_url:str; required_skills:list; preferred_skills:list
 class MatchOut(ORM):
@@ -54,6 +58,14 @@ class AppPatch(BaseModel): status:ApplicationStatus|None=None; notes:str|None=No
 class AppOut(ORM): id:str; job_id:str; status:ApplicationStatus; applied_at:datetime|None; interview_at:datetime|None; followup_at:datetime|None; notes:str; approved_at:datetime|None; created_at:datetime
 class AIRequest(BaseModel): application_id:str|None=None; job_id:str|None=None; question:str|None=None
 class Event(BaseModel): workflow:str; execution_id:str=""; status:str="success"; payload:dict[str,Any]=Field(default_factory=dict); error:str=""
+
+
+def portal_token_hash(token:str) -> str: return hashlib.sha256(token.encode()).hexdigest()
+async def valid_portal_session(token:str,db:AsyncSession) -> PortalSession:
+    record=await db.scalar(select(PortalSession).where(PortalSession.token_hash==portal_token_hash(token)))
+    if not record: raise HTTPException(404,"Portal session not found")
+    if record.expires_at<datetime.utcnow(): raise HTTPException(410,"Portal session expired")
+    record.last_used_at=datetime.utcnow(); return record
 
 
 async def scan_public_jobs(profile:Profile,db:AsyncSession) -> dict:
@@ -158,6 +170,26 @@ async def scan_jobs(user:User=Depends(current_user),db:AsyncSession=Depends(get_
     if not profile.skills: raise HTTPException(409,"Upload a resume with recognizable skills before scanning")
     try: return await scan_public_jobs(profile,db)
     except Exception as error: raise HTTPException(502,f"Public job scan failed: {type(error).__name__}") from None
+@router.post("/jobs/import-url",response_model=JobOut,status_code=201)
+async def import_job_url(data:JobURL,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+    try: item=await fetch_portal_job(str(data.url))
+    except ValueError as error: raise HTTPException(422,str(error)) from None
+    except Exception as error: raise HTTPException(502,f"Job portal lookup failed: {type(error).__name__}") from None
+    existing=await db.scalar(select(Job).where(Job.source==item["source"],Job.external_id==item["external_id"]))
+    if existing: return existing
+    description=item["description_text"]
+    if len(description)<20: raise HTTPException(422,"Job portal returned an incomplete description")
+    raw_posted=item.get("posted_at"); posted_at=datetime.now(UTC).replace(tzinfo=None)
+    if isinstance(raw_posted,(int,float)): posted_at=datetime.fromtimestamp(raw_posted/1000,UTC).replace(tzinfo=None)
+    elif isinstance(raw_posted,str):
+        try: posted_at=datetime.fromisoformat(raw_posted).replace(tzinfo=None)
+        except ValueError: pass
+    required=[skill for skill in KNOWN_SKILLS if skill.lower() in description.lower()]
+    category,_=classify(item["title"],description)
+    result=Job(external_id=item["external_id"],company_name=item["company_name"],title=item["title"],description=description,location=item["location"],country="Germany",remote_type="unspecified",employment_type="unspecified",category=category,posted_at=posted_at,source=item["source"],application_url=item["application_url"],required_skills=required,preferred_skills=[],language_requirements={},embedding=embed(description)); db.add(result); await db.flush()
+    profile=await db.scalar(select(Profile).where(Profile.user_id==user.id))
+    if profile: db.add(JobMatch(user_id=user.id,job_id=result.id,**score_match(profile,result)))
+    await db.commit(); await db.refresh(result); return result
 @router.get("/jobs/{job_id}",response_model=JobOut)
 async def job(job_id:str,_:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
     result=await db.get(Job,job_id)
@@ -207,6 +239,36 @@ async def ai_application(data:AIRequest,user:User=Depends(current_user),db:Async
     pack=application_pack(profile,target,details); pack["application_details"]=json.dumps(details,indent=2)
     for kind,content in pack.items(): db.add(ApplicationDocument(application_id=application.id,document_type=kind,content=content))
     application.status=ApplicationStatus.READY; await db.commit(); return {"application_id":application.id,"requires_human_approval":True,**pack}
+@router.post("/applications/{app_id}/portal-session",status_code=201)
+async def create_portal_session(app_id:str,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+    application=await db.scalar(select(Application).where(Application.id==app_id,Application.user_id==user.id))
+    if not application: raise HTTPException(404,"Application not found")
+    if application.status!=ApplicationStatus.READY: raise HTTPException(409,"Generate and review the application before opening the portal")
+    target=await db.get(Job,application.job_id)
+    if not target or not target.application_url: raise HTTPException(404,"Job application URL not found")
+    token=secrets.token_urlsafe(32); expires=datetime.utcnow()+timedelta(minutes=20)
+    db.add(PortalSession(token_hash=portal_token_hash(token),application_id=application.id,user_id=user.id,expires_at=expires)); await db.commit()
+    portal_url=f"{target.application_url.split('#',1)[0]}#jobflow={token}"
+    return {"portal_url":portal_url,"expires_at":expires,"requires_extension":True,"requires_human_confirmation":True}
+@router.get("/portal-sessions/{token}")
+async def get_portal_session(token:str,db:AsyncSession=Depends(get_db)):
+    record=await valid_portal_session(token,db); application=await db.get(Application,record.application_id); target=await db.get(Job,application.job_id); profile=await db.scalar(select(Profile).where(Profile.user_id==record.user_id)); user=await db.get(User,record.user_id)
+    try: details=json.loads(application.notes) if application.notes else {}
+    except json.JSONDecodeError: details={}
+    documents=(await db.scalars(select(ApplicationDocument).where(ApplicationDocument.application_id==application.id).order_by(desc(ApplicationDocument.created_at)))).all()
+    prepared={document.document_type:document.content for document in documents}
+    resume=await db.scalar(select(Resume).where(Resume.user_id==record.user_id).order_by(desc(Resume.created_at)))
+    await db.commit()
+    return {"application_id":application.id,"job":{"title":target.title,"company":target.company_name,"url":target.application_url},"candidate":{"full_name":details.get("full_name") or profile.full_name,"email":details.get("email") or user.email,"phone":details.get("phone","") ,"address":details.get("address","") ,"linkedin":details.get("linkedin","") ,"portfolio":details.get("portfolio","")},"answers":details,"documents":prepared,"resume_available":resume is not None,"resume_url":f"/api/v1/portal-sessions/{token}/resume" if resume else None,"expires_at":record.expires_at,"requires_human_confirmation":True}
+@router.get("/portal-sessions/{token}/resume")
+async def get_portal_resume(token:str,db:AsyncSession=Depends(get_db)):
+    record=await valid_portal_session(token,db); application=await db.get(Application,record.application_id); target=await db.get(Job,application.job_id); profile=await db.scalar(select(Profile).where(Profile.user_id==record.user_id)); resume=await db.scalar(select(Resume).where(Resume.user_id==record.user_id).order_by(desc(Resume.created_at)))
+    if not resume: raise HTTPException(404,"Resume not found")
+    content=tailored_resume_pdf(profile,resume,target); await db.commit(); filename=f"{(profile.full_name or 'candidate').strip().replace(' ','-')}-tailored.pdf"
+    return Response(content=content,media_type="application/pdf",headers={"Content-Disposition":f"attachment; filename*=UTF-8''{quote(filename)}","Content-Length":str(len(content))})
+@router.post("/portal-sessions/{token}/submitted")
+async def portal_submitted(token:str,db:AsyncSession=Depends(get_db)):
+    record=await valid_portal_session(token,db); application=await db.get(Application,record.application_id); now=datetime.utcnow(); record.submitted_at=now; application.approved_at=application.approved_at or now; application.applied_at=now; application.status=ApplicationStatus.APPLIED; application.updated_at=now; await db.commit(); return {"recorded":True,"application_id":application.id,"status":application.status}
 @router.post("/ai/interview")
 async def ai_interview(data:AIRequest,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
     target=await db.get(Job,data.job_id); profile=await db.scalar(select(Profile).where(Profile.user_id==user.id))
