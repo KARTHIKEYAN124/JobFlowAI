@@ -126,3 +126,19 @@ def test_existing_portal_job_is_matched_for_each_user(monkeypatch):
             assert imported.status_code==201
             matches=client.get("/api/v1/matches",headers=headers).json()
             assert any(match["job_id"]==imported.json()["id"] for match in matches)
+
+
+def test_greenhouse_existing_application_uses_canonical_portal_url(monkeypatch):
+    external_id=f"greenhouse:acme:{uuid.uuid4().hex}"
+    async def fake_portal_job(_):
+        return {"external_id":external_id,"title":"Python Engineer","company_name":"Acme","location":"Remote","description_text":"Build Python and FastAPI services for production systems.","application_url":"https://careers.example.com/redirected","source":"Greenhouse public Job Board API","posted_at":"2026-08-25T10:00:00Z"}
+    monkeypatch.setattr(routes,"fetch_portal_job",fake_portal_job)
+    with TestClient(app) as client:
+        email=f"greenhouse-existing-{uuid.uuid4().hex}@example.com"
+        registration=client.post("/api/v1/auth/register",json={"email":email,"password":"verification-password","full_name":"Portal Test"})
+        headers={"Authorization":f"Bearer {registration.json()['access_token']}"}
+        job=client.post("/api/v1/jobs/import-url",headers=headers,json={"url":"https://job-boards.greenhouse.io/acme/jobs/123"}).json()
+        application=client.post("/api/v1/applications",headers=headers,json={"job_id":job["id"]}).json()
+        client.post("/api/v1/ai/application",headers=headers,json={"application_id":application["id"]})
+        launched=client.post(f"/api/v1/applications/{application['id']}/portal-session",headers=headers).json()
+        assert launched["portal_url"].startswith(f"https://job-boards.greenhouse.io/acme/jobs/{external_id.rsplit(':',1)[1]}#jobflow=")

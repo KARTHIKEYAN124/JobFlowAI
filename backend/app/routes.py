@@ -61,6 +61,11 @@ class Event(BaseModel): workflow:str; execution_id:str=""; status:str="success";
 
 
 def portal_token_hash(token:str) -> str: return hashlib.sha256(token.encode()).hexdigest()
+def application_url(target:Job) -> str:
+    if target.source=="Greenhouse public Job Board API" and target.external_id.startswith("greenhouse:"):
+        _,board,job_id=target.external_id.split(":",2)
+        return f"https://job-boards.greenhouse.io/{board}/jobs/{job_id}"
+    return target.application_url
 async def valid_portal_session(token:str,db:AsyncSession) -> PortalSession:
     record=await db.scalar(select(PortalSession).where(PortalSession.token_hash==portal_token_hash(token)))
     if not record: raise HTTPException(404,"Portal session not found")
@@ -181,6 +186,7 @@ async def import_job_url(data:JobURL,user:User=Depends(current_user),db:AsyncSes
     except Exception as error: raise HTTPException(502,f"Job portal lookup failed: {type(error).__name__}") from None
     existing=await db.scalar(select(Job).where(Job.source==item["source"],Job.external_id==item["external_id"]))
     if existing:
+        existing.application_url=item["application_url"]
         profile=await db.scalar(select(Profile).where(Profile.user_id==user.id))
         if profile:
             values=score_match(profile,existing)
@@ -259,9 +265,11 @@ async def create_portal_session(app_id:str,user:User=Depends(current_user),db:As
     if application.status!=ApplicationStatus.READY: raise HTTPException(409,"Generate and review the application before opening the portal")
     target=await db.get(Job,application.job_id)
     if not target or not target.application_url: raise HTTPException(404,"Job application URL not found")
+    employer_url=application_url(target)
+    if employer_url!=target.application_url: target.application_url=employer_url
     token=secrets.token_urlsafe(32); expires=datetime.utcnow()+timedelta(minutes=20)
     db.add(PortalSession(token_hash=portal_token_hash(token),application_id=application.id,user_id=user.id,expires_at=expires)); await db.commit()
-    portal_url=f"{target.application_url.split('#',1)[0]}#jobflow={token}"
+    portal_url=f"{employer_url.split('#',1)[0]}#jobflow={token}"
     return {"portal_url":portal_url,"expires_at":expires,"requires_extension":True,"requires_human_confirmation":True}
 @router.get("/portal-sessions/{token}")
 async def get_portal_session(token:str,db:AsyncSession=Depends(get_db)):
