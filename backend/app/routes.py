@@ -4,7 +4,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
@@ -61,6 +61,10 @@ class Event(BaseModel): workflow:str; execution_id:str=""; status:str="success";
 
 
 def portal_token_hash(token:str) -> str: return hashlib.sha256(token.encode()).hexdigest()
+def is_demo_job(target:Job) -> bool:
+    if target.source=="Greenhouse public Job Board API" and target.external_id.startswith("greenhouse:"): return False
+    hostname=(urlparse(target.application_url).hostname or "").lower()
+    return target.source=="JobFlow demo" or hostname in {"example.com","www.example.com"} or hostname.endswith(".example.com")
 def application_url(target:Job) -> str:
     if target.source=="Greenhouse public Job Board API" and target.external_id.startswith("greenhouse:"):
         _,board,job_id=target.external_id.split(":",2)
@@ -164,8 +168,9 @@ async def get_resume_file(user:User=Depends(current_user),db:AsyncSession=Depend
     resume,stored=row
     return Response(content=stored.data,media_type=resume.content_type,headers={"Content-Disposition":f"attachment; filename*=UTF-8''{quote(resume.filename)}","Content-Length":str(stored.size)})
 @router.get("/jobs",response_model=list[JobOut])
-async def jobs(q:str="",location:str="",category:str="",remote:str="",minimum_match:float=Query(0,ge=0,le=100),limit:int=Query(50,ge=1,le=100),user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+async def jobs(q:str="",location:str="",category:str="",remote:str="",minimum_match:float=Query(0,ge=0,le=100),limit:int=Query(50,ge=1,le=100),include_demo:bool=False,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
     statement=select(Job).order_by(desc(Job.posted_at)).limit(limit)
+    if not include_demo: statement=statement.where(Job.source!="JobFlow demo")
     if q: statement=statement.where(or_(Job.title.ilike(f"%{q}%"),Job.company_name.ilike(f"%{q}%")))
     if location: statement=statement.where(Job.location.ilike(f"%{location}%"))
     if category: statement=statement.where(Job.category==category.upper())
@@ -231,7 +236,8 @@ async def match(job_id:str,user:User=Depends(current_user),db:AsyncSession=Depen
 async def matches(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)): return list((await db.scalars(select(JobMatch).where(JobMatch.user_id==user.id).order_by(desc(JobMatch.overall_score)))).all())
 @router.post("/applications",response_model=AppOut,status_code=201)
 async def create_app(data:AppCreate,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
-    if not await db.get(Job,data.job_id): raise HTTPException(404,"Job not found")
+    target=await db.get(Job,data.job_id)
+    if not target: raise HTTPException(404,"Job not found")
     result=Application(user_id=user.id,job_id=data.job_id,notes=data.notes,status=ApplicationStatus.PREPARING); db.add(result); await db.commit(); await db.refresh(result); return result
 @router.get("/applications",response_model=list[AppOut])
 async def apps(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)): return list((await db.scalars(select(Application).where(Application.user_id==user.id).order_by(desc(Application.updated_at)))).all())
@@ -265,6 +271,7 @@ async def create_portal_session(app_id:str,user:User=Depends(current_user),db:As
     if application.status!=ApplicationStatus.READY: raise HTTPException(409,"Generate and review the application before opening the portal")
     target=await db.get(Job,application.job_id)
     if not target or not target.application_url: raise HTTPException(404,"Job application URL not found")
+    if is_demo_job(target): raise HTTPException(409,"This is a portfolio demo listing and has no employer application portal. Scan or import a real job first.")
     employer_url=application_url(target)
     if employer_url!=target.application_url: target.application_url=employer_url
     token=secrets.token_urlsafe(32); expires=datetime.utcnow()+timedelta(minutes=20)
@@ -313,7 +320,7 @@ async def dashboard(user:User=Depends(current_user),db:AsyncSession=Depends(get_
     pipeline={status.value:0 for status in ApplicationStatus}
     for status,total in (await db.execute(select(Application.status,func.count(Application.id)).where(Application.user_id==user.id).group_by(Application.status))).all(): pipeline[status.value]=total
     recent_rows=(await db.execute(select(Application,Job).join(Job,Job.id==Application.job_id).where(Application.user_id==user.id).order_by(desc(Application.updated_at)).limit(5))).all()
-    match_rows=(await db.execute(select(JobMatch,Job).join(Job,Job.id==JobMatch.job_id).where(JobMatch.user_id==user.id).order_by(desc(JobMatch.overall_score)))).all()
+    match_rows=(await db.execute(select(JobMatch,Job).join(Job,Job.id==JobMatch.job_id).where(JobMatch.user_id==user.id,Job.source!="JobFlow demo").order_by(desc(JobMatch.overall_score)))).all()
     gap_counts:dict[str,int]={}
     for match_result,_ in match_rows:
         for skill in match_result.missing_skills: gap_counts[skill]=gap_counts.get(skill,0)+1
@@ -321,8 +328,8 @@ async def dashboard(user:User=Depends(current_user),db:AsyncSession=Depends(get_
     priority=[{"id":job.id,"title":job.title,"company_name":job.company_name,"location":job.location,"remote_type":job.remote_type,"category":job.category,"posted_at":job.posted_at,"required_skills":job.required_skills,"overall_score":match_result.overall_score,"matched_skills":match_result.matched_skills,"missing_skills":match_result.missing_skills} for match_result,job in match_rows[:3]]
     recent=[{"id":application.id,"job_id":job.id,"title":job.title,"company_name":job.company_name,"status":application.status.value,"updated_at":application.updated_at} for application,job in recent_rows]
     return {
-        "total_jobs":await count(select(func.count()).select_from(Job)),
-        "new_jobs":await count(select(func.count()).select_from(Job).where(Job.created_at>=datetime.utcnow()-timedelta(days=1))),
+        "total_jobs":await count(select(func.count()).select_from(Job).where(Job.source!="JobFlow demo")),
+        "new_jobs":await count(select(func.count()).select_from(Job).where(Job.source!="JobFlow demo",Job.created_at>=datetime.utcnow()-timedelta(days=1))),
         "high_matches":sum(1 for match_result,_ in match_rows if match_result.overall_score>=80),
         "scored_jobs":scored,"applications":sum(pipeline.values()),"ready":pipeline[ApplicationStatus.READY.value],
         "interviews":pipeline[ApplicationStatus.INTERVIEW.value],"offers":pipeline[ApplicationStatus.OFFER.value],
