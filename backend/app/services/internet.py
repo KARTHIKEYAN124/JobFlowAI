@@ -178,6 +178,40 @@ async def fetch_portal_job(value: str) -> dict:
     raise ValueError("Supported public portals: Greenhouse, Lever, Ashby, and SmartRecruiters")
 
 
+async def fetch_application_questions(external_id: str) -> dict:
+    """Return only questions exposed by a supported ATS public application schema."""
+    if not external_id.startswith("greenhouse:"):
+        return {
+            "questions": [],
+            "source": "employer portal at launch",
+            "note": "This ATS does not expose application questions publicly. The companion will read the real rendered form and ask them before filling.",
+        }
+    _, board, job_id = external_id.split(":", 2)
+    payload = await asyncio.to_thread(_json, f"{GREENHOUSE_API}/{board}/jobs/{job_id}?content=true&questions=true")
+    standard = re.compile(r"first.?name|last.?name|full.?name|email|phone|resume|cover.?letter", re.IGNORECASE)
+    questions = []
+    for question_index, question in enumerate(payload.get("questions") or []):
+        label = plain_text(question.get("label") or f"Application question {question_index + 1}")
+        for field_index, field in enumerate(question.get("fields") or [{}]):
+            name = str(field.get("name") or f"question_{question_index + 1}_{field_index + 1}")
+            if standard.search(f"{name} {label}"):
+                continue
+            values = field.get("values") or []
+            options = [plain_text(str(value.get("label") or value.get("name") or value.get("value") or "")) if isinstance(value, dict) else plain_text(str(value)) for value in values]
+            questions.append({
+                "key": re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:150],
+                "label": label,
+                "required": bool(question.get("required")),
+                "type": str(field.get("type") or "input_text"),
+                "options": [option for option in options if option],
+            })
+    return {
+        "questions": questions,
+        "source": "Greenhouse public application schema",
+        "note": "These questions came from the employer's current Greenhouse application configuration.",
+    }
+
+
 async def sourced_interview_questions(skills: list[str], title: str) -> list[dict]:
     title_terms = [term for term in re.findall(r"[A-Za-z][A-Za-z+#.]{2,}", title) if term.lower() not in {"senior", "junior", "working", "student", "developer", "engineer"}]
     topics = list(dict.fromkeys(skills or title_terms))[:5]

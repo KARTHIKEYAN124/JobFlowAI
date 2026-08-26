@@ -120,6 +120,17 @@ class PortalSession(Base):
     submitted_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
 
 
+class CandidateAnswer(Base):
+    __tablename__="candidate_answers"
+    __table_args__=(UniqueConstraint("user_id","field_key"),)
+    id: Mapped[str]=mapped_column(String(36),primary_key=True,default=uid)
+    user_id: Mapped[str]=mapped_column(ForeignKey("users.id",ondelete="CASCADE"),index=True)
+    field_key: Mapped[str]=mapped_column(String(160))
+    question: Mapped[str]=mapped_column(String(500),default="")
+    value: Mapped[str]=mapped_column(Text)
+    updated_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow,onupdate=datetime.utcnow)
+
+
 class WorkflowRun(Base):
     __tablename__="workflow_runs"; id: Mapped[str]=mapped_column(String(36),primary_key=True,default=uid); workflow: Mapped[str]=mapped_column(String(160),index=True); execution_id: Mapped[str]=mapped_column(String(160),default=""); status: Mapped[str]=mapped_column(String(40)); error: Mapped[str]=mapped_column(Text,default=""); input_snapshot: Mapped[dict]=mapped_column(JSON,default=dict); started_at: Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow); finished_at: Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
 
