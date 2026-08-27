@@ -12,11 +12,58 @@ void (async () => {
   panel.setAttribute("aria-live", "polite");
   Object.assign(panel.style, {
     position: "fixed", right: "20px", bottom: "20px", zIndex: "2147483647", width: "360px",
-    maxHeight: "min(720px, calc(100vh - 40px))", overflowY: "auto", padding: "18px",
+    maxWidth: "calc(100vw - 24px)", maxHeight: "min(720px, calc(100vh - 24px))", overflow: "hidden",
     borderRadius: "12px", background: "#111827", color: "#f9fafb",
     font: "14px/1.45 system-ui, sans-serif", boxShadow: "0 18px 50px rgba(0,0,0,.28)"
   });
+  const panelHeader = document.createElement("div");
+  panelHeader.textContent = "JobFlow AI Companion · Drag to move";
+  Object.assign(panelHeader.style, {
+    padding: "12px 18px", background: "#1f2937", fontWeight: "700", cursor: "grab",
+    userSelect: "none", touchAction: "none", borderBottom: "1px solid #374151"
+  });
+  const panelContent = document.createElement("div");
+  Object.assign(panelContent.style, { padding: "18px", overflowY: "auto", maxHeight: "calc(min(720px, 100vh - 24px) - 48px)" });
+  panel.append(panelHeader, panelContent);
   document.body.appendChild(panel);
+
+  const clampPanelToViewport = () => {
+    const rect = panel.getBoundingClientRect();
+    const left = Math.min(Math.max(0, rect.left), Math.max(0, window.innerWidth - rect.width));
+    const top = Math.min(Math.max(0, rect.top), Math.max(0, window.innerHeight - rect.height));
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+  };
+  panelHeader.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    const rect = panel.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+    panel.style.left = `${rect.left}px`;
+    panel.style.top = `${rect.top}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    panelHeader.style.cursor = "grabbing";
+    panelHeader.setPointerCapture(event.pointerId);
+    const move = moveEvent => {
+      const maxLeft = Math.max(0, window.innerWidth - panel.offsetWidth);
+      const maxTop = Math.max(0, window.innerHeight - panel.offsetHeight);
+      panel.style.left = `${Math.min(Math.max(0, moveEvent.clientX - offsetX), maxLeft)}px`;
+      panel.style.top = `${Math.min(Math.max(0, moveEvent.clientY - offsetY), maxTop)}px`;
+    };
+    const stop = () => {
+      panelHeader.style.cursor = "grab";
+      panelHeader.removeEventListener("pointermove", move);
+      panelHeader.removeEventListener("pointerup", stop);
+      panelHeader.removeEventListener("pointercancel", stop);
+    };
+    panelHeader.addEventListener("pointermove", move);
+    panelHeader.addEventListener("pointerup", stop);
+    panelHeader.addEventListener("pointercancel", stop);
+  });
+  window.addEventListener("resize", clampPanelToViewport);
 
   const addText = (parent, tag, value, style = {}) => {
     const element = document.createElement(tag);
@@ -26,9 +73,9 @@ void (async () => {
     return element;
   };
   const showMessage = (title, message) => {
-    panel.replaceChildren();
-    addText(panel, "strong", title, { fontSize: "16px" });
-    addText(panel, "p", message);
+    panelContent.replaceChildren();
+    addText(panelContent, "strong", title, { fontSize: "16px" });
+    addText(panelContent, "p", message);
   };
   showMessage("JobFlow AI Companion", "Loading your reviewed application…");
 
@@ -63,6 +110,17 @@ void (async () => {
   const applicationRoot = () => document.querySelector("input[type=file]")?.closest("form")
     || Array.from(document.forms).sort((left, right) => right.querySelectorAll("input, textarea, select").length - left.querySelectorAll("input, textarea, select").length)[0]
     || document;
+  const uploadFieldText = control => {
+    const nearby = control.closest("label, [role=group], .field, .form-field")?.textContent || "";
+    return `${labelText(control)} ${nearby.slice(0, 240)}`.replace(/\s+/g, " ").trim();
+  };
+  const resumeUploadInputs = () => Array.from(applicationRoot().querySelectorAll('input[type="file"]')).filter(control => {
+    if (control.disabled) return false;
+    const text = normalized(uploadFieldText(control));
+    const isResume = /(^|\W)(resume|résumé|cv|curriculum vitae)(\W|$)/i.test(text);
+    const isOtherDocument = /cover letter|transcript|portfolio|photo|headshot|certificate|supporting document/i.test(text);
+    return isResume && !isOtherDocument;
+  });
   const supportedControls = () => Array.from(applicationRoot().querySelectorAll("input, textarea, select")).filter(control => {
     const ignoredTypes = new Set(["hidden", "file", "submit", "button", "reset", "image"]);
     return isVisible(control) && !ignoredTypes.has(normalized(control.type));
@@ -171,13 +229,91 @@ void (async () => {
     return button;
   };
 
-  const renderSubmitReview = (filled, resumeAttached) => {
-    panel.replaceChildren();
-    addText(panel, "strong", "Application ready for your review", { fontSize: "16px" });
-    addText(panel, "p", `${filled} fields filled${resumeAttached ? " · tailored resume attached" : ""}. Review every answer on the employer page.`);
+  const appendResumeImport = (parent, resumeState, onAttached) => {
+    if (!resumeState.available) return;
+    const section = document.createElement("section");
+    Object.assign(section.style, { margin: "14px 0", padding: "12px", border: "1px solid #4b5563", borderRadius: "8px", background: "#182234" });
+    addText(section, "strong", "Resume import", { display: "block" });
+    const fields = resumeUploadInputs();
+    if (!fields.length) {
+      addText(section, "p", "No resume/CV upload field is visible on this portal page yet. Open the application form or its resume step, then scan again.", { color: "#d1d5db" });
+      const scan = primaryButton("Scan portal again");
+      scan.onclick = () => {
+        if (!resumeUploadInputs().length) {
+          scan.textContent = "No resume field found — scan again";
+          return;
+        }
+        section.remove();
+        appendResumeImport(parent, resumeState, onAttached);
+      };
+      section.appendChild(scan);
+      parent.appendChild(section);
+      return;
+    }
+    if (resumeState.attached) {
+      addText(section, "p", `Tailored resume imported into ${resumeState.fieldLabel || "the portal resume field"}.`, { marginBottom: "0", color: "#86efac" });
+      parent.appendChild(section);
+      return;
+    }
+    addText(section, "p", "Choose the portal field, then import the tailored PDF stored by JobFlow.", { margin: "6px 0" });
+    let selector = null;
+    if (fields.length > 1) {
+      selector = document.createElement("select");
+      Object.assign(selector.style, { width: "100%", padding: "8px", borderRadius: "7px", background: "#fff", color: "#111827" });
+      fields.forEach((field, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = uploadFieldText(field) || `Resume upload ${index + 1}`;
+        selector.appendChild(option);
+      });
+      section.appendChild(selector);
+    }
+    const status = addText(section, "p", "", { marginBottom: "0", color: "#fbbf24" });
+    const button = primaryButton("Import tailored resume");
+    button.onclick = async () => {
+      button.disabled = true;
+      button.textContent = "Importing resume…";
+      status.textContent = "Downloading your reviewed tailored PDF…";
+      const resumeResponse = await resumeState.responsePromise;
+      const field = fields[Number(selector?.value || 0)];
+      if (!resumeResponse?.resumeBytes?.length || !field?.isConnected) {
+        status.textContent = resumeResponse?.error || "The resume field changed or the tailored PDF could not be loaded. Reopen this application step and try again.";
+        button.disabled = false;
+        button.textContent = "Try resume import again";
+        return;
+      }
+      try {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([new Uint8Array(resumeResponse.resumeBytes)], "jobflow-tailored-resume.pdf", { type: "application/pdf" }));
+        field.files = transfer.files;
+        emitChange(field);
+        resumeState.attached = true;
+        resumeState.fieldLabel = uploadFieldText(field) || "the portal resume field";
+        status.style.color = "#86efac";
+        status.textContent = `Imported into ${resumeState.fieldLabel}. Confirm the filename on the employer page.`;
+        button.remove();
+        selector?.setAttribute("disabled", "disabled");
+        onAttached?.();
+      } catch (error) {
+        status.textContent = `This portal blocked automatic attachment: ${error?.message || "use its upload control to select the PDF manually"}.`;
+        button.disabled = false;
+        button.textContent = "Try resume import again";
+      }
+    };
+    section.appendChild(button);
+    parent.appendChild(section);
+  };
+
+  const renderSubmitReview = (filled, resumeState) => {
+    panelContent.replaceChildren();
+    addText(panelContent, "strong", "Application ready for your review", { fontSize: "16px" });
+    const summary = addText(panelContent, "p", `${filled} fields filled${resumeState.attached ? " · tailored resume attached" : ""}. Review every answer on the employer page.`);
+    appendResumeImport(panelContent, resumeState, () => {
+      summary.textContent = `${filled} fields filled · tailored resume attached. Review every answer on the employer page.`;
+    });
     const missing = requiredUnanswered();
     highlight(missing);
-    if (missing.length) addText(panel, "p", `${missing.length} required fields still need an answer and are highlighted.`, { color: "#fbbf24" });
+    if (missing.length) addText(panelContent, "p", `${missing.length} required fields still need an answer and are highlighted.`, { color: "#fbbf24" });
     const button = primaryButton("Review complete — submit application");
     button.onclick = () => {
       const unanswered = requiredUnanswered();
@@ -190,18 +326,19 @@ void (async () => {
       if (!window.confirm("Submit this application to the employer now? JobFlow will record it as applied.")) return;
       const submit = Array.from(applicationRoot().querySelectorAll("button[type=submit], input[type=submit]")).find(control => isVisible(control));
       if (!submit) {
-        addText(panel, "p", "No enabled submit button was found. Use the employer's submit control manually after review.", { color: "#fbbf24" });
+        addText(panelContent, "p", "No enabled submit button was found. Use the employer's submit control manually after review.", { color: "#fbbf24" });
         return;
       }
       chrome.runtime.sendMessage({ type: "RECORD_SUBMITTED", token });
       submit.click();
     };
-    panel.appendChild(button);
+    panelContent.appendChild(button);
   };
-  const renderQuestions = (questions, filled, resumeAttached) => {
-    panel.replaceChildren();
-    addText(panel, "strong", `${questions.length} portal questions need your input`, { fontSize: "16px" });
-    addText(panel, "p", "JobFlow will not guess employer-specific answers. Required questions are marked with *.");
+  const renderQuestions = (questions, filled, resumeState) => {
+    panelContent.replaceChildren();
+    addText(panelContent, "strong", `${questions.length} portal questions need your input`, { fontSize: "16px" });
+    addText(panelContent, "p", "JobFlow will not guess employer-specific answers. Required questions are marked with *.");
+    appendResumeImport(panelContent, resumeState);
     const entries = questions.map((control, index) => {
       const row = document.createElement("label");
       Object.assign(row.style, { display: "block", marginTop: "14px", fontSize: "12px", fontWeight: "600" });
@@ -209,7 +346,7 @@ void (async () => {
       addText(row, "span", `${labelText(control) || fallback}${control.required ? " *" : ""}`);
       const editor = createEditor(control);
       row.appendChild(editor);
-      panel.appendChild(row);
+      panelContent.appendChild(row);
       return { control, editor };
     });
     const apply = primaryButton("Apply answers to portal");
@@ -221,12 +358,12 @@ void (async () => {
       const missing = requiredUnanswered();
       if (missing.length) {
         highlight(missing);
-        addText(panel, "p", `${missing.length} required questions still need an answer.`, { color: "#fbbf24" });
+        addText(panelContent, "p", `${missing.length} required questions still need an answer.`, { color: "#fbbf24" });
         return;
       }
-      renderSubmitReview(filled + newlyFilled, resumeAttached);
+      renderSubmitReview(filled + newlyFilled, resumeState);
     };
-    panel.appendChild(apply);
+    panelContent.appendChild(apply);
   };
 
   const slowNotice = window.setTimeout(() => {
@@ -241,6 +378,12 @@ void (async () => {
     const resumePromise = response.applicationPackage.resume_available
       ? sendMessage({ type: "FETCH_RESUME", token }, 40000)
       : Promise.resolve({ ok: false, resumeBytes: null });
+    const resumeState = {
+      available: Boolean(response.applicationPackage.resume_available),
+      responsePromise: resumePromise,
+      attached: false,
+      fieldLabel: ""
+    };
     let attempts = 0;
     const fillWhenReady = async () => {
       if (supportedControls().length < 2 && attempts < 30) {
@@ -267,25 +410,10 @@ void (async () => {
         [["relevant experience", "additional information", "cover letter"], answers.relevant_experience || data.documents?.cover_letter]
       ].forEach(([keywords, value]) => { if (fill(keywords, value)) filled += 1; });
 
-      let resumeAttached = false;
-      const fileInput = applicationRoot().querySelector("input[type=file]");
-      if (fileInput && response.applicationPackage.resume_available) {
-        showMessage("JobFlow AI Companion", "Application details loaded. Preparing and attaching your tailored resume…");
-      }
-      const resumeResponse = fileInput ? await resumePromise : null;
-      if (fileInput && resumeResponse?.resumeBytes?.length) {
-        try {
-          const transfer = new DataTransfer();
-          transfer.items.add(new File([new Uint8Array(resumeResponse.resumeBytes)], "jobflow-tailored-resume.pdf", { type: "application/pdf" }));
-          fileInput.files = transfer.files;
-          fileInput.dispatchEvent(new Event("change", { bubbles: true }));
-          resumeAttached = true;
-        } catch { resumeAttached = false; }
-      }
       const questions = questionControls();
       highlight(questions.filter(control => control.required));
-      if (questions.length) renderQuestions(questions, filled, resumeAttached);
-      else renderSubmitReview(filled, resumeAttached);
+      if (questions.length) renderQuestions(questions, filled, resumeState);
+      else renderSubmitReview(filled, resumeState);
     };
     window.setTimeout(fillWhenReady, 300);
 })();
