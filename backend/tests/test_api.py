@@ -73,13 +73,17 @@ def test_uploaded_resume_pdf_is_stored_and_downloadable(monkeypatch):
         assert "candidate.pdf" in downloaded.headers["content-disposition"]
 
 
-def test_portal_session_requires_review_and_records_confirmed_submission():
+def test_portal_session_requires_review_and_records_confirmed_submission(monkeypatch):
+    external_id=f"ashby:portal:{uuid.uuid4().hex}"
+    async def fake_portal_job(_):
+        return {"external_id":external_id,"title":"Python Engineer","company_name":"Acme","location":"Remote","description_text":"Build Python and FastAPI services for production systems.","application_url":"https://jobs.ashbyhq.com/acme/test","source":"Ashby public Job Board API","posted_at":"2026-08-25T10:00:00Z"}
+    monkeypatch.setattr(routes,"fetch_portal_job",fake_portal_job)
     with TestClient(app) as client:
         email=f"portal-{uuid.uuid4().hex}@example.com"
         registration=client.post("/api/v1/auth/register",json={"email":email,"password":"verification-password","full_name":"Portal Test"})
         headers={"Authorization":f"Bearer {registration.json()['access_token']}"}
-        jobs=client.get("/api/v1/jobs",headers=headers).json()
-        application=client.post("/api/v1/applications",headers=headers,json={"job_id":jobs[0]["id"],"notes":json.dumps({"email":email,"phone":"123","truth_confirmation":"on","review_confirmation":"on"})})
+        job=client.post("/api/v1/jobs/import-url",headers=headers,json={"url":"https://jobs.ashbyhq.com/acme/test"}).json()
+        application=client.post("/api/v1/applications",headers=headers,json={"job_id":job["id"],"notes":json.dumps({"email":email,"phone":"123","truth_confirmation":"on","review_confirmation":"on"})})
         app_id=application.json()["id"]
         assert client.post(f"/api/v1/applications/{app_id}/portal-session",headers=headers).status_code==409
         prepared=client.post("/api/v1/ai/application",headers=headers,json={"application_id":app_id})
@@ -103,13 +107,60 @@ def test_dashboard_uses_current_user_application_data():
         before=client.get("/api/v1/analytics/dashboard",headers=headers)
         assert before.status_code==200
         assert before.json()["applications"]==0
-        job_id=client.get("/api/v1/jobs",headers=headers).json()[0]["id"]
+        job_id=client.get("/api/v1/jobs?include_demo=true",headers=headers).json()[0]["id"]
         created=client.post("/api/v1/applications",headers=headers,json={"job_id":job_id})
         assert created.status_code==201
         after=client.get("/api/v1/analytics/dashboard",headers=headers).json()
         assert after["applications"]==1
         assert after["pipeline"]["PREPARING"]==1
         assert after["recent_applications"][0]["job_id"]==job_id
+
+
+def test_demo_jobs_are_hidden_and_cannot_launch_a_portal():
+    with TestClient(app) as client:
+        email=f"demo-guard-{uuid.uuid4().hex}@example.com"
+        registration=client.post("/api/v1/auth/register",json={"email":email,"password":"verification-password","full_name":"Demo Guard"})
+        headers={"Authorization":f"Bearer {registration.json()['access_token']}"}
+        assert all(job["source"]!="JobFlow demo" for job in client.get("/api/v1/jobs",headers=headers).json())
+        demo=next(job for job in client.get("/api/v1/jobs?include_demo=true",headers=headers).json() if job["source"]=="JobFlow demo")
+        application=client.post("/api/v1/applications",headers=headers,json={"job_id":demo["id"]}).json()
+        client.post("/api/v1/ai/application",headers=headers,json={"application_id":application["id"]})
+        launched=client.post(f"/api/v1/applications/{application['id']}/portal-session",headers=headers)
+        assert launched.status_code==409
+        assert "demo listing" in launched.json()["detail"].lower()
+
+
+def test_application_answers_are_saved_and_reused():
+    with TestClient(app) as client:
+        email=f"saved-answers-{uuid.uuid4().hex}@example.com"
+        registration=client.post("/api/v1/auth/register",json={"email":email,"password":"verification-password","full_name":"Saved Answers"})
+        headers={"Authorization":f"Bearer {registration.json()['access_token']}"}
+        demo=client.get("/api/v1/jobs?include_demo=true",headers=headers).json()[0]
+        notes=json.dumps({"phone":"+49 123","work_authorization":"Yes","save_for_future":"on","_question_labels":json.dumps({"work_authorization":"Authorized to work?"})})
+        created=client.post("/api/v1/applications",headers=headers,json={"job_id":demo["id"],"notes":notes})
+        assert created.status_code==201
+        saved=client.get("/api/v1/application-answers",headers=headers).json()
+        assert saved["answers"]["phone"]=="+49 123"
+        assert saved["answers"]["work_authorization"]=="Yes"
+        assert saved["questions"]["work_authorization"]=="Authorized to work?"
+
+
+def test_real_portal_questions_are_returned_without_invention(monkeypatch):
+    external_id=f"ashby:questions:{uuid.uuid4().hex}"
+    async def fake_portal_job(_):
+        return {"external_id":external_id,"title":"Python Engineer","company_name":"Acme","location":"Remote","description_text":"Build Python and FastAPI services for production systems.","application_url":"https://jobs.ashbyhq.com/acme/test","source":"Ashby public Job Board API","posted_at":"2026-08-25T10:00:00Z"}
+    async def fake_questions(_):
+        return {"questions":[{"key":"eligible","label":"Are you eligible?","required":True,"type":"input_text","options":[]}],"source":"ATS schema","note":"Current employer form"}
+    monkeypatch.setattr(routes,"fetch_portal_job",fake_portal_job)
+    monkeypatch.setattr(routes,"fetch_application_questions",fake_questions)
+    with TestClient(app) as client:
+        email=f"questions-{uuid.uuid4().hex}@example.com"
+        registration=client.post("/api/v1/auth/register",json={"email":email,"password":"verification-password","full_name":"Question Test"})
+        headers={"Authorization":f"Bearer {registration.json()['access_token']}"}
+        real_job=client.post("/api/v1/jobs/import-url",headers=headers,json={"url":"https://jobs.ashbyhq.com/acme/test"}).json()
+        result=client.get(f"/api/v1/jobs/{real_job['id']}/application-questions",headers=headers)
+        assert result.status_code==200
+        assert result.json()["questions"]==[{"key":"eligible","label":"Are you eligible?","required":True,"type":"input_text","options":[]}]
 
 
 def test_existing_portal_job_is_matched_for_each_user(monkeypatch):

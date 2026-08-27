@@ -32,6 +32,22 @@ void (async () => {
   };
   showMessage("JobFlow AI Companion", "Loading your reviewed application…");
 
+  const sendMessage = (message, timeoutMs) => new Promise(resolve => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok: false, error: "JobFlow took too long to respond. Check the API, then try Fill on job portal again." });
+    }, timeoutMs);
+    chrome.runtime.sendMessage(message, response => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      const runtimeError = chrome.runtime.lastError;
+      resolve(runtimeError ? { ok: false, error: runtimeError.message } : response);
+    });
+  });
+
   const emitChange = control => {
     control.dispatchEvent(new Event("input", { bubbles: true }));
     control.dispatchEvent(new Event("change", { bubbles: true }));
@@ -213,13 +229,20 @@ void (async () => {
     panel.appendChild(apply);
   };
 
-  chrome.runtime.sendMessage({ type: "FETCH_PACKAGE", token }, response => {
+  const slowNotice = window.setTimeout(() => {
+    showMessage("JobFlow AI Companion", "The secure application package is still loading. A cold server start can take a few seconds…");
+  }, 6000);
+  const response = await sendMessage({ type: "FETCH_PACKAGE", token }, 30000);
+  window.clearTimeout(slowNotice);
     if (!response?.ok) {
       showMessage("JobFlow could not start", response?.error || "Unknown error");
       return;
     }
+    const resumePromise = response.applicationPackage.resume_available
+      ? sendMessage({ type: "FETCH_RESUME", token }, 40000)
+      : Promise.resolve({ ok: false, resumeBytes: null });
     let attempts = 0;
-    const fillWhenReady = () => {
+    const fillWhenReady = async () => {
       if (supportedControls().length < 2 && attempts < 30) {
         attempts += 1;
         window.setTimeout(fillWhenReady, 300);
@@ -246,10 +269,14 @@ void (async () => {
 
       let resumeAttached = false;
       const fileInput = applicationRoot().querySelector("input[type=file]");
-      if (fileInput && response.resumeBytes?.length) {
+      if (fileInput && response.applicationPackage.resume_available) {
+        showMessage("JobFlow AI Companion", "Application details loaded. Preparing and attaching your tailored resume…");
+      }
+      const resumeResponse = fileInput ? await resumePromise : null;
+      if (fileInput && resumeResponse?.resumeBytes?.length) {
         try {
           const transfer = new DataTransfer();
-          transfer.items.add(new File([new Uint8Array(response.resumeBytes)], "jobflow-tailored-resume.pdf", { type: "application/pdf" }));
+          transfer.items.add(new File([new Uint8Array(resumeResponse.resumeBytes)], "jobflow-tailored-resume.pdf", { type: "application/pdf" }));
           fileInput.files = transfer.files;
           fileInput.dispatchEvent(new Event("change", { bubbles: true }));
           resumeAttached = true;
@@ -261,5 +288,4 @@ void (async () => {
       else renderSubmitReview(filled, resumeAttached);
     };
     window.setTimeout(fillWhenReady, 300);
-  });
 })();

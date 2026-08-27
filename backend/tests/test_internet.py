@@ -1,7 +1,7 @@
 import pytest
 
 from app.services import internet
-from app.services.internet import discover_jobs, fetch_portal_job, plain_text
+from app.services.internet import discover_jobs, fetch_application_questions, fetch_portal_job, plain_text
 
 
 def test_plain_text_decodes_and_removes_job_feed_markup():
@@ -56,3 +56,21 @@ async def test_discover_jobs_aggregates_multiple_public_feeds(monkeypatch):
 async def test_fetch_portal_job_rejects_unknown_hosts():
     with pytest.raises(ValueError,match="Supported public portals"):
         await fetch_portal_job("https://example.com/jobs/123")
+
+
+@pytest.mark.asyncio
+async def test_greenhouse_application_questions_come_from_public_schema(monkeypatch):
+    monkeypatch.setattr(internet,"_json",lambda url:{"questions":[
+        {"label":"Email","required":True,"fields":[{"name":"email","type":"input_text","values":[]}]},
+        {"label":"Will you need sponsorship?","required":True,"fields":[{"name":"question_1","type":"multi_value_single_select","values":[{"label":"Yes"},{"label":"No"}]}]},
+    ]})
+    result=await fetch_application_questions("greenhouse:acme:123")
+    assert result["source"]=="Greenhouse public application schema"
+    assert result["questions"]==[{"key":"question_1","label":"Will you need sponsorship?","required":True,"type":"multi_value_single_select","options":["Yes","No"]}]
+
+
+@pytest.mark.asyncio
+async def test_non_public_question_schema_defers_to_live_portal():
+    result=await fetch_application_questions("lever:acme:123")
+    assert result["questions"]==[]
+    assert result["source"]=="employer portal at launch"

@@ -1,16 +1,17 @@
 import hashlib
 import json
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl
 from pypdf import PdfReader
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,7 @@ from app.database import (
     Application,
     ApplicationDocument,
     ApplicationStatus,
+    CandidateAnswer,
     Job,
     JobMatch,
     PortalSession,
@@ -33,12 +35,18 @@ from app.database import (
 from app.security import create_token, current_user, hash_password, verify_password, verify_webhook
 from app.services.documents import application_pack, interview_pack, tailored_resume_pdf
 from app.services.embeddings import embed
-from app.services.internet import discover_jobs, fetch_portal_job, sourced_interview_questions
+from app.services.internet import (
+    discover_jobs,
+    fetch_application_questions,
+    fetch_portal_job,
+    sourced_interview_questions,
+)
 from app.services.jobs import classify, searchable
 from app.services.matching import classification, score_match
 from app.services.resumes import KNOWN_SKILLS, extract_resume
 
 router=APIRouter(prefix="/api/v1")
+ATS_SOURCES=["Greenhouse public Job Board API","Lever public Postings API","Ashby public Job Board API","SmartRecruiters public Posting API"]
 class ORM(BaseModel): model_config=ConfigDict(from_attributes=True)
 class Register(BaseModel): email:EmailStr; password:str=Field(min_length=10,max_length=128); full_name:str=Field(min_length=2,max_length=160)
 class Login(BaseModel): email:EmailStr; password:str
@@ -54,6 +62,7 @@ class JobOut(ORM):
 class MatchOut(ORM):
     id:str; job_id:str; overall_score:float; technical_score:float; semantic_score:float; matched_skills:list; missing_skills:list; explanation:str; classification:str=""
 class AppCreate(BaseModel): job_id:str; notes:str=""
+class SavedAnswers(BaseModel): answers:dict[str,str]=Field(default_factory=dict); questions:dict[str,str]=Field(default_factory=dict)
 class AppPatch(BaseModel): status:ApplicationStatus|None=None; notes:str|None=None; approved:bool|None=None
 class AppOut(ORM): id:str; job_id:str; status:ApplicationStatus; applied_at:datetime|None; interview_at:datetime|None; followup_at:datetime|None; notes:str; approved_at:datetime|None; created_at:datetime
 class AIRequest(BaseModel): application_id:str|None=None; job_id:str|None=None; question:str|None=None
@@ -61,6 +70,12 @@ class Event(BaseModel): workflow:str; execution_id:str=""; status:str="success";
 
 
 def portal_token_hash(token:str) -> str: return hashlib.sha256(token.encode()).hexdigest()
+def available_job_clause():
+    return and_(Job.source!="JobFlow demo",or_(Job.source.in_(ATS_SOURCES),Job.posted_at>=datetime.utcnow()-timedelta(days=45)))
+def is_demo_job(target:Job) -> bool:
+    if target.source=="Greenhouse public Job Board API" and target.external_id.startswith("greenhouse:"): return False
+    hostname=(urlparse(target.application_url).hostname or "").lower()
+    return target.source=="JobFlow demo" or hostname in {"example.com","www.example.com"} or hostname.endswith(".example.com")
 def application_url(target:Job) -> str:
     if target.source=="Greenhouse public Job Board API" and target.external_id.startswith("greenhouse:"):
         _,board,job_id=target.external_id.split(":",2)
@@ -164,8 +179,9 @@ async def get_resume_file(user:User=Depends(current_user),db:AsyncSession=Depend
     resume,stored=row
     return Response(content=stored.data,media_type=resume.content_type,headers={"Content-Disposition":f"attachment; filename*=UTF-8''{quote(resume.filename)}","Content-Length":str(stored.size)})
 @router.get("/jobs",response_model=list[JobOut])
-async def jobs(q:str="",location:str="",category:str="",remote:str="",minimum_match:float=Query(0,ge=0,le=100),limit:int=Query(50,ge=1,le=100),user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+async def jobs(q:str="",location:str="",category:str="",remote:str="",minimum_match:float=Query(0,ge=0,le=100),limit:int=Query(50,ge=1,le=100),include_demo:bool=False,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
     statement=select(Job).order_by(desc(Job.posted_at)).limit(limit)
+    if not include_demo: statement=statement.where(available_job_clause())
     if q: statement=statement.where(or_(Job.title.ilike(f"%{q}%"),Job.company_name.ilike(f"%{q}%")))
     if location: statement=statement.where(Job.location.ilike(f"%{location}%"))
     if category: statement=statement.where(Job.category==category.upper())
@@ -214,6 +230,12 @@ async def job(job_id:str,_:User=Depends(current_user),db:AsyncSession=Depends(ge
     result=await db.get(Job,job_id)
     if not result: raise HTTPException(404,"Job not found")
     return result
+@router.get("/jobs/{job_id}/application-questions")
+async def job_application_questions(job_id:str,_:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+    target=await db.get(Job,job_id)
+    if not target or is_demo_job(target): raise HTTPException(404,"Available job not found")
+    try: return await fetch_application_questions(target.external_id)
+    except Exception as error: return {"questions":[],"source":"employer portal at launch","note":f"The public question schema is temporarily unavailable ({type(error).__name__}). The companion will read the real form before filling."}
 @router.post("/jobs/{job_id}/save",response_model=AppOut)
 async def save(job_id:str,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
     if not await db.get(Job,job_id): raise HTTPException(404,"Job not found")
@@ -228,11 +250,42 @@ async def match(job_id:str,user:User=Depends(current_user),db:AsyncSession=Depen
     else: result=JobMatch(user_id=user.id,job_id=job_id,**values); db.add(result)
     await db.commit(); await db.refresh(result); output=MatchOut.model_validate(result); return output.model_copy(update={"classification":classification(result.overall_score)})
 @router.get("/matches",response_model=list[MatchOut])
-async def matches(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)): return list((await db.scalars(select(JobMatch).where(JobMatch.user_id==user.id).order_by(desc(JobMatch.overall_score)))).all())
+async def matches(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)): return list((await db.scalars(select(JobMatch).join(Job,Job.id==JobMatch.job_id).where(JobMatch.user_id==user.id,available_job_clause()).order_by(desc(JobMatch.overall_score)))).all())
 @router.post("/applications",response_model=AppOut,status_code=201)
 async def create_app(data:AppCreate,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
-    if not await db.get(Job,data.job_id): raise HTTPException(404,"Job not found")
-    result=Application(user_id=user.id,job_id=data.job_id,notes=data.notes,status=ApplicationStatus.PREPARING); db.add(result); await db.commit(); await db.refresh(result); return result
+    target=await db.get(Job,data.job_id)
+    if not target: raise HTTPException(404,"Job not found")
+    result=Application(user_id=user.id,job_id=data.job_id,notes=data.notes,status=ApplicationStatus.PREPARING); db.add(result)
+    try: details=json.loads(data.notes) if data.notes else {}
+    except json.JSONDecodeError: details={}
+    if details.pop("save_for_future", None):
+        excluded={"truth_confirmation","review_confirmation"}
+        labels_raw=details.pop("_question_labels", {})
+        try: labels=json.loads(labels_raw) if isinstance(labels_raw,str) else labels_raw
+        except json.JSONDecodeError: labels={}
+        for key,value in details.items():
+            text=str(value).strip()
+            if key in excluded or not text: continue
+            answer=await db.scalar(select(CandidateAnswer).where(CandidateAnswer.user_id==user.id,CandidateAnswer.field_key==key))
+            if answer: answer.value=text; answer.question=str(labels.get(key) or answer.question or key.replace("_"," "))[:500]
+            else: db.add(CandidateAnswer(user_id=user.id,field_key=key,question=str(labels.get(key) or key.replace("_"," "))[:500],value=text))
+    application_details={key:value for key,value in details.items() if key!="_question_labels"}
+    result.notes=json.dumps(application_details); await db.commit(); await db.refresh(result); return result
+@router.get("/application-answers")
+async def saved_application_answers(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+    rows=(await db.scalars(select(CandidateAnswer).where(CandidateAnswer.user_id==user.id).order_by(CandidateAnswer.field_key))).all()
+    return {"answers":{row.field_key:row.value for row in rows},"questions":{row.field_key:row.question for row in rows}}
+@router.put("/application-answers")
+async def put_application_answers(data:SavedAnswers,user:User=Depends(current_user),db:AsyncSession=Depends(get_db)):
+    for key,value in data.answers.items():
+        field_key=re.sub(r"[^a-z0-9_]+","_",key.lower()).strip("_")[:160]
+        text=value.strip()
+        if not field_key or not text: continue
+        answer=await db.scalar(select(CandidateAnswer).where(CandidateAnswer.user_id==user.id,CandidateAnswer.field_key==field_key))
+        question=data.questions.get(key) or key.replace("_"," ")
+        if answer: answer.value=text; answer.question=question[:500]
+        else: db.add(CandidateAnswer(user_id=user.id,field_key=field_key,question=question[:500],value=text))
+    await db.commit(); return {"saved":True,"count":len(data.answers)}
 @router.get("/applications",response_model=list[AppOut])
 async def apps(user:User=Depends(current_user),db:AsyncSession=Depends(get_db)): return list((await db.scalars(select(Application).where(Application.user_id==user.id).order_by(desc(Application.updated_at)))).all())
 @router.patch("/applications/{app_id}",response_model=AppOut)
@@ -265,6 +318,10 @@ async def create_portal_session(app_id:str,user:User=Depends(current_user),db:As
     if application.status!=ApplicationStatus.READY: raise HTTPException(409,"Generate and review the application before opening the portal")
     target=await db.get(Job,application.job_id)
     if not target or not target.application_url: raise HTTPException(404,"Job application URL not found")
+    if is_demo_job(target): raise HTTPException(409,"This is a portfolio demo listing and has no employer application portal. Scan or import a real job first.")
+    if target.source in {"Greenhouse public Job Board API","Lever public Postings API","Ashby public Job Board API","SmartRecruiters public Posting API"}:
+        try: await fetch_portal_job(application_url(target))
+        except Exception: raise HTTPException(410,"This employer posting is no longer available. Refresh Jobs and choose an active role.") from None
     employer_url=application_url(target)
     if employer_url!=target.application_url: target.application_url=employer_url
     token=secrets.token_urlsafe(32); expires=datetime.utcnow()+timedelta(minutes=20)
@@ -313,7 +370,7 @@ async def dashboard(user:User=Depends(current_user),db:AsyncSession=Depends(get_
     pipeline={status.value:0 for status in ApplicationStatus}
     for status,total in (await db.execute(select(Application.status,func.count(Application.id)).where(Application.user_id==user.id).group_by(Application.status))).all(): pipeline[status.value]=total
     recent_rows=(await db.execute(select(Application,Job).join(Job,Job.id==Application.job_id).where(Application.user_id==user.id).order_by(desc(Application.updated_at)).limit(5))).all()
-    match_rows=(await db.execute(select(JobMatch,Job).join(Job,Job.id==JobMatch.job_id).where(JobMatch.user_id==user.id).order_by(desc(JobMatch.overall_score)))).all()
+    match_rows=(await db.execute(select(JobMatch,Job).join(Job,Job.id==JobMatch.job_id).where(JobMatch.user_id==user.id,available_job_clause()).order_by(desc(JobMatch.overall_score)))).all()
     gap_counts:dict[str,int]={}
     for match_result,_ in match_rows:
         for skill in match_result.missing_skills: gap_counts[skill]=gap_counts.get(skill,0)+1
@@ -321,8 +378,8 @@ async def dashboard(user:User=Depends(current_user),db:AsyncSession=Depends(get_
     priority=[{"id":job.id,"title":job.title,"company_name":job.company_name,"location":job.location,"remote_type":job.remote_type,"category":job.category,"posted_at":job.posted_at,"required_skills":job.required_skills,"overall_score":match_result.overall_score,"matched_skills":match_result.matched_skills,"missing_skills":match_result.missing_skills} for match_result,job in match_rows[:3]]
     recent=[{"id":application.id,"job_id":job.id,"title":job.title,"company_name":job.company_name,"status":application.status.value,"updated_at":application.updated_at} for application,job in recent_rows]
     return {
-        "total_jobs":await count(select(func.count()).select_from(Job)),
-        "new_jobs":await count(select(func.count()).select_from(Job).where(Job.created_at>=datetime.utcnow()-timedelta(days=1))),
+        "total_jobs":await count(select(func.count()).select_from(Job).where(available_job_clause())),
+        "new_jobs":await count(select(func.count()).select_from(Job).where(available_job_clause(),Job.created_at>=datetime.utcnow()-timedelta(days=1))),
         "high_matches":sum(1 for match_result,_ in match_rows if match_result.overall_score>=80),
         "scored_jobs":scored,"applications":sum(pipeline.values()),"ready":pipeline[ApplicationStatus.READY.value],
         "interviews":pipeline[ApplicationStatus.INTERVIEW.value],"offers":pipeline[ApplicationStatus.OFFER.value],

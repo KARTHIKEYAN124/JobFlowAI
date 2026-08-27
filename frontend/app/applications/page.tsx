@@ -21,7 +21,7 @@ export default function ApplicationsPage() {
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    try { const [applicationRecords, jobRecords] = await Promise.all([api<Application[]>("/applications"), api<ApiJob[]>("/jobs?limit=100")]); setApplications(applicationRecords); setJobs(jobRecords); }
+    try { const [applicationRecords, jobRecords] = await Promise.all([api<Application[]>("/applications"), api<ApiJob[]>("/jobs?limit=100&include_demo=true")]); setApplications(applicationRecords); setJobs(jobRecords); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not load applications."); }
     finally { setLoading(false); }
   }, []);
