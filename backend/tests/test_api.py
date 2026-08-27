@@ -122,6 +122,64 @@ def test_uploaded_resume_pdf_is_stored_and_downloadable(monkeypatch):
         assert "candidate.pdf" in downloaded.headers["content-disposition"]
 
 
+def test_tailored_resume_can_be_previewed_and_revised(monkeypatch):
+    pdf_content = b"%PDF-1.4\nTailored resume test\n%%EOF"
+
+    class ParsedPage:
+        @staticmethod
+        def extract_text():
+            return "Resume Test\nBuilt a Python API\nCreated a FastAPI project"
+
+    monkeypatch.setattr(routes, "PdfReader", lambda _: type("ParsedPdf", (), {"pages": [ParsedPage()]})())
+
+    async def no_external_scan(*_):
+        return {"source": "test", "found": 0, "imported": 0, "matched": 0, "skills_used": ["Python"]}
+
+    async def no_ai(*_):
+        return None
+
+    monkeypatch.setattr(routes, "scan_public_jobs", no_external_scan)
+    monkeypatch.setattr(routes, "generate_json", no_ai)
+
+    with TestClient(app) as client:
+        email = f"tailored-{uuid.uuid4().hex}@example.com"
+        registration = client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "password": "verification-password", "full_name": "Resume Test"},
+        )
+        headers = {"Authorization": f"Bearer {registration.json()['access_token']}"}
+        assert client.post(
+            "/api/v1/resume",
+            headers=headers,
+            files={"file": ("candidate.pdf", pdf_content, "application/pdf")},
+        ).status_code == 201
+        job = client.get("/api/v1/jobs?include_demo=true", headers=headers).json()[0]
+        application = client.post(
+            "/api/v1/applications", headers=headers, json={"job_id": job["id"]}
+        ).json()
+
+        preview = client.get(
+            f"/api/v1/applications/{application['id']}/tailored-resume", headers=headers
+        )
+        assert preview.status_code == 200
+        assert preview.content.startswith(b"%PDF")
+        assert preview.headers["content-disposition"].startswith("inline;")
+        assert preview.headers["cache-control"] == "no-store"
+
+        revised = client.post(
+            f"/api/v1/applications/{application['id']}/tailored-resume/revise",
+            headers=headers,
+            json={"instructions": "Emphasize FastAPI and Python evidence first"},
+        )
+        assert revised.status_code == 200
+        assert revised.json()["version"] == 1
+        documents = client.get(
+            f"/api/v1/applications/{application['id']}/documents", headers=headers
+        ).json()["documents"]
+        plan = next(document for document in documents if document["type"] == "tailored_resume_plan")
+        assert json.loads(plan["content"])["instructions"] == "Emphasize FastAPI and Python evidence first"
+
+
 def test_portal_session_requires_review_and_records_confirmed_submission(monkeypatch):
     external_id = f"ashby:portal:{uuid.uuid4().hex}"
 

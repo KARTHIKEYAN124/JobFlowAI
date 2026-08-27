@@ -41,12 +41,25 @@ def interview_pack(profile, job):
     )
 
 
-def tailored_resume_pdf(profile, resume, job):
+def tailored_resume_pdf(profile, resume, job, selected_line_numbers=None, skill_order=None):
     """Create an ATS-readable PDF that only reorders verified candidate content."""
     verified = {skill.lower(): skill for skill in profile.skills}
     relevant = [verified[skill.lower()] for skill in job.required_skills if skill.lower() in verified]
     if not relevant:
         relevant = [skill for skill in profile.skills if skill.lower() in job.description.lower()]
+    if skill_order:
+        requested = [verified[skill.lower()] for skill in skill_order if skill.lower() in verified]
+        relevant = requested + [skill for skill in relevant if skill.lower() not in {item.lower() for item in requested}]
+    source_lines = [line.strip() for line in (resume.extracted_text or "").splitlines() if line.strip()]
+    if selected_line_numbers:
+        seen = set()
+        selected_lines = []
+        for number in selected_line_numbers:
+            if isinstance(number, int) and 1 <= number <= len(source_lines) and number not in seen:
+                selected_lines.append(source_lines[number - 1])
+                seen.add(number)
+        if selected_lines:
+            source_lines = selected_lines
     styles = getSampleStyleSheet()
     output = BytesIO()
     document = SimpleDocTemplate(
@@ -71,8 +84,7 @@ def tailored_resume_pdf(profile, resume, job):
             Paragraph("Verified resume content", styles["Heading2"]),
         ]
     )
-    for line in (resume.extracted_text or "").splitlines():
-        if line.strip():
-            story.extend([Paragraph(escape(line.strip()), styles["BodyText"]), Spacer(1, 1.5 * mm)])
+    for line in source_lines:
+        story.extend([Paragraph(escape(line), styles["BodyText"]), Spacer(1, 1.5 * mm)])
     document.build(story)
     return output.getvalue()

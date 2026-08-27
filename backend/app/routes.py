@@ -193,6 +193,10 @@ class AIRequest(BaseModel):
     question: str | None = None
 
 
+class ResumeRevisionRequest(BaseModel):
+    instructions: str = Field(min_length=3, max_length=1000)
+
+
 class Event(BaseModel):
     workflow: str
     execution_id: str = ""
@@ -1079,6 +1083,155 @@ async def application_documents(app_id: str, user: User = Depends(current_user),
     }
 
 
+async def latest_resume_plan(application_id: str, db: AsyncSession) -> dict:
+    row = await db.scalar(
+        select(ApplicationDocument)
+        .where(
+            ApplicationDocument.application_id == application_id,
+            ApplicationDocument.document_type == "tailored_resume_plan",
+        )
+        .order_by(desc(ApplicationDocument.version))
+    )
+    if not row:
+        return {}
+    try:
+        plan = json.loads(row.content)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return plan if isinstance(plan, dict) else {}
+
+
+async def application_resume_context(app_id: str, user: User, db: AsyncSession):
+    application = await db.scalar(
+        select(Application).where(Application.id == app_id, Application.user_id == user.id)
+    )
+    if not application:
+        raise HTTPException(404, "Application not found")
+    target = await db.get(Job, application.job_id)
+    profile = await db.scalar(select(Profile).where(Profile.user_id == user.id))
+    resume = await db.scalar(
+        select(Resume).where(Resume.user_id == user.id).order_by(desc(Resume.created_at))
+    )
+    if not resume:
+        raise HTTPException(404, "Upload a resume before preparing a tailored version")
+    return application, target, profile, resume
+
+
+@router.get("/applications/{app_id}/tailored-resume")
+async def application_tailored_resume(
+    app_id: str, user: User = Depends(current_user), db: AsyncSession = Depends(get_db)
+):
+    application, target, profile, resume = await application_resume_context(app_id, user, db)
+    plan = await latest_resume_plan(application.id, db)
+    content = tailored_resume_pdf(
+        profile,
+        resume,
+        target,
+        selected_line_numbers=plan.get("selected_line_numbers"),
+        skill_order=plan.get("skill_order"),
+    )
+    filename = f"{(profile.full_name or 'candidate').strip().replace(' ', '-')}-tailored.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}",
+            "Content-Length": str(len(content)),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/applications/{app_id}/tailored-resume/revise")
+async def revise_application_resume(
+    app_id: str,
+    data: ResumeRevisionRequest,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    application, target, profile, resume = await application_resume_context(app_id, user, db)
+    source_lines = [line.strip() for line in (resume.extracted_text or "").splitlines() if line.strip()]
+    if not source_lines:
+        raise HTTPException(422, "The uploaded resume has no extractable text to revise")
+    indexed_lines = [{"line_number": index + 1, "text": line} for index, line in enumerate(source_lines)]
+    generated = await generate_json(
+        "resume_revision",
+        "Revise a resume using only the supplied line numbers and exact verified skills. Select and reorder existing lines; never write replacement text or invent facts. Return only line numbers and exact skill strings from the input.",
+        json.dumps(
+            {
+                "revision_request": data.instructions,
+                "verified_resume_lines": indexed_lines,
+                "verified_skills": profile.skills,
+                "job": {
+                    "title": target.title,
+                    "company": target.company_name,
+                    "description": target.description,
+                    "required_skills": target.required_skills,
+                },
+                "required_output": {
+                    "selected_line_numbers": "array of existing line_number integers in desired order",
+                    "skill_order": "array containing only exact verified_skills strings",
+                },
+            }
+        ),
+    )
+    raw_plan = generated[0] if generated else {}
+    if generated:
+        db.add(ai_usage(user.id, "resume_revision", generated[1]))
+    requested_numbers = raw_plan.get("selected_line_numbers", [])
+    selected_line_numbers = []
+    for value in requested_numbers if isinstance(requested_numbers, list) else []:
+        if isinstance(value, int) and 1 <= value <= len(source_lines) and value not in selected_line_numbers:
+            selected_line_numbers.append(value)
+    if not selected_line_numbers:
+        terms = set(re.findall(r"[a-z0-9+#.]{2,}", data.instructions.lower()))
+        selected_line_numbers = sorted(
+            range(1, len(source_lines) + 1),
+            key=lambda number: -sum(term in source_lines[number - 1].lower() for term in terms),
+        )
+    verified_skills = {skill.lower(): skill for skill in profile.skills}
+    requested_skills = raw_plan.get("skill_order", [])
+    skill_order = []
+    for value in requested_skills if isinstance(requested_skills, list) else []:
+        if isinstance(value, str) and value.lower() in verified_skills:
+            skill = verified_skills[value.lower()]
+            if skill not in skill_order:
+                skill_order.append(skill)
+    if not skill_order:
+        skill_order = sorted(
+            profile.skills,
+            key=lambda skill: (skill.lower() not in data.instructions.lower(), skill.lower()),
+        )
+    latest = (
+        await db.scalar(
+            select(func.max(ApplicationDocument.version)).where(
+                ApplicationDocument.application_id == application.id,
+                ApplicationDocument.document_type == "tailored_resume_plan",
+            )
+        )
+        or 0
+    )
+    plan = {
+        "instructions": data.instructions,
+        "selected_line_numbers": selected_line_numbers,
+        "skill_order": skill_order,
+    }
+    db.add(
+        ApplicationDocument(
+            application_id=application.id,
+            document_type="tailored_resume_plan",
+            version=latest + 1,
+            content=json.dumps(plan),
+        )
+    )
+    await db.commit()
+    return {
+        "version": latest + 1,
+        "message": "Tailored resume updated using verified resume content only.",
+        "selected_lines": len(selected_line_numbers),
+    }
+
+
 @router.get("/portal-sessions/{token}/resume")
 async def get_portal_resume(token: str, db: AsyncSession = Depends(get_db)):
     record = await valid_portal_session(token, db)
@@ -1090,7 +1243,14 @@ async def get_portal_resume(token: str, db: AsyncSession = Depends(get_db)):
     )
     if not resume:
         raise HTTPException(404, "Resume not found")
-    content = tailored_resume_pdf(profile, resume, target)
+    plan = await latest_resume_plan(application.id, db)
+    content = tailored_resume_pdf(
+        profile,
+        resume,
+        target,
+        selected_line_numbers=plan.get("selected_line_numbers"),
+        skill_order=plan.get("skill_order"),
+    )
     await db.commit()
     filename = f"{(profile.full_name or 'candidate').strip().replace(' ', '-')}-tailored.pdf"
     return Response(
