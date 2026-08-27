@@ -17,11 +17,32 @@ void (async () => {
     font: "14px/1.45 system-ui, sans-serif", boxShadow: "0 18px 50px rgba(0,0,0,.28)"
   });
   const panelHeader = document.createElement("div");
-  panelHeader.textContent = "JobFlow AI Companion · Drag to move";
   Object.assign(panelHeader.style, {
-    padding: "12px 18px", background: "#1f2937", fontWeight: "700", cursor: "grab",
+    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px",
+    padding: "10px 12px 10px 16px", background: "#1f2937", fontWeight: "700", cursor: "grab",
     userSelect: "none", touchAction: "none", borderBottom: "1px solid #374151"
   });
+  const panelTitle = document.createElement("span");
+  panelTitle.textContent = "JobFlow 1.3.1 · Drag here";
+  const panelControls = document.createElement("div");
+  Object.assign(panelControls.style, { display: "flex", gap: "6px", flexShrink: "0" });
+  const headerButton = (label, title) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    Object.assign(button.style, {
+      width: "30px", height: "30px", padding: "0", border: "1px solid #6b7280", borderRadius: "6px",
+      background: "#374151", color: "#f9fafb", font: "700 16px/1 system-ui, sans-serif", cursor: "pointer"
+    });
+    panelControls.appendChild(button);
+    return button;
+  };
+  const dockLeftButton = headerButton("←", "Move JobFlow panel to the left");
+  const dockRightButton = headerButton("→", "Move JobFlow panel to the right");
+  const minimizeButton = headerButton("−", "Minimize JobFlow panel");
+  panelHeader.append(panelTitle, panelControls);
   const panelContent = document.createElement("div");
   Object.assign(panelContent.style, { padding: "18px", overflowY: "auto", maxHeight: "calc(min(720px, 100vh - 24px) - 48px)" });
   panel.append(panelHeader, panelContent);
@@ -36,8 +57,26 @@ void (async () => {
     panel.style.right = "auto";
     panel.style.bottom = "auto";
   };
+  dockLeftButton.addEventListener("click", () => {
+    panel.style.left = "12px";
+    panel.style.right = "auto";
+    clampPanelToViewport();
+  });
+  dockRightButton.addEventListener("click", () => {
+    panel.style.left = "auto";
+    panel.style.right = "12px";
+  });
+  minimizeButton.addEventListener("click", () => {
+    const minimized = panelContent.style.display !== "none";
+    panelContent.style.display = minimized ? "none" : "block";
+    minimizeButton.textContent = minimized ? "+" : "−";
+    minimizeButton.title = minimized ? "Restore JobFlow panel" : "Minimize JobFlow panel";
+    minimizeButton.setAttribute("aria-label", minimizeButton.title);
+    panelTitle.textContent = minimized ? "JobFlow 1.3.1" : "JobFlow 1.3.1 · Drag here";
+    window.requestAnimationFrame(clampPanelToViewport);
+  });
   panelHeader.addEventListener("pointerdown", event => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || event.target.closest("button")) return;
     const rect = panel.getBoundingClientRect();
     const offsetX = event.clientX - rect.left;
     const offsetY = event.clientY - rect.top;
