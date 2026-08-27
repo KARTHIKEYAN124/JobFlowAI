@@ -31,7 +31,10 @@ def plain_text(value: str) -> str:
 
 async def discover_jobs(skills: list[str], roles: list[str], pages: int = 2) -> list[dict]:
     requests = [
-        *(asyncio.to_thread(_json, f"{ARBEITNOW_API}?{urlencode({'page': page})}") for page in range(1, pages + 1)),
+        *(
+            asyncio.to_thread(_json, f"{ARBEITNOW_API}?{urlencode({'page': page})}")
+            for page in range(1, pages + 1)
+        ),
         asyncio.to_thread(_json, f"{REMOTIVE_API}?limit=100"),
         asyncio.to_thread(_json, REMOTE_OK_API),
     ]
@@ -45,28 +48,50 @@ async def discover_jobs(skills: list[str], roles: list[str], pages: int = 2) -> 
         normalized.extend({**item, "source": "Arbeitnow public API"} for item in payload.get("data", []))
     remotive = payloads[pages]
     if not isinstance(remotive, Exception):
-        normalized.extend({
-            "slug": f"remotive-{item.get('id')}", "title": item.get("title"),
-            "company_name": item.get("company_name"), "location": item.get("candidate_required_location"),
-            "description": item.get("description"), "tags": item.get("tags") or [],
-            "created_at": _timestamp(item.get("publication_date")), "remote": True,
-            "url": item.get("url"), "job_types": [item.get("job_type") or "unspecified"],
-            "source": "Remotive public API",
-        } for item in remotive.get("jobs", []))
+        normalized.extend(
+            {
+                "slug": f"remotive-{item.get('id')}",
+                "title": item.get("title"),
+                "company_name": item.get("company_name"),
+                "location": item.get("candidate_required_location"),
+                "description": item.get("description"),
+                "tags": item.get("tags") or [],
+                "created_at": _timestamp(item.get("publication_date")),
+                "remote": True,
+                "url": item.get("url"),
+                "job_types": [item.get("job_type") or "unspecified"],
+                "source": "Remotive public API",
+            }
+            for item in remotive.get("jobs", [])
+        )
     remote_ok = payloads[pages + 1]
     if not isinstance(remote_ok, Exception) and isinstance(remote_ok, list):
-        normalized.extend({
-            "slug": f"remoteok-{item.get('id') or item.get('slug')}", "title": item.get("position"),
-            "company_name": item.get("company"), "location": item.get("location") or "Remote",
-            "description": item.get("description"), "tags": item.get("tags") or [],
-            "created_at": _timestamp(item.get("date") or item.get("epoch")), "remote": True,
-            "url": item.get("url"), "job_types": ["remote"], "source": "Remote OK public API",
-        } for item in remote_ok if isinstance(item, dict) and item.get("position"))
+        normalized.extend(
+            {
+                "slug": f"remoteok-{item.get('id') or item.get('slug')}",
+                "title": item.get("position"),
+                "company_name": item.get("company"),
+                "location": item.get("location") or "Remote",
+                "description": item.get("description"),
+                "tags": item.get("tags") or [],
+                "created_at": _timestamp(item.get("date") or item.get("epoch")),
+                "remote": True,
+                "url": item.get("url"),
+                "job_types": ["remote"],
+                "source": "Remote OK public API",
+            }
+            for item in remote_ok
+            if isinstance(item, dict) and item.get("position")
+        )
     for item in normalized:
         description = plain_text(item.get("description", ""))
-        haystack = " ".join([
-            item.get("title", ""), description, " ".join(item.get("tags") or []),
-        ]).lower()
+        haystack = " ".join(
+            [
+                item.get("title", ""),
+                description,
+                " ".join(item.get("tags") or []),
+            ]
+        ).lower()
         matched = [term for term in terms if term in haystack]
         if matched:
             ranked.append((len(set(matched)), item, description))
@@ -153,7 +178,9 @@ async def fetch_portal_job(value: str) -> dict:
             "title": posting.get("title") or "Untitled role",
             "company_name": board.replace("-", " ").title(),
             "location": posting.get("location") or "Unspecified",
-            "description_text": plain_text(posting.get("descriptionHtml") or posting.get("descriptionPlain", "")),
+            "description_text": plain_text(
+                posting.get("descriptionHtml") or posting.get("descriptionPlain", "")
+            ),
             "application_url": posting.get("applyUrl") or posting.get("jobUrl") or value,
             "source": "Ashby public Job Board API",
             "posted_at": posting.get("publishedAt"),
@@ -187,8 +214,12 @@ async def fetch_application_questions(external_id: str) -> dict:
             "note": "This ATS does not expose application questions publicly. The companion will read the real rendered form and ask them before filling.",
         }
     _, board, job_id = external_id.split(":", 2)
-    payload = await asyncio.to_thread(_json, f"{GREENHOUSE_API}/{board}/jobs/{job_id}?content=true&questions=true")
-    standard = re.compile(r"first.?name|last.?name|full.?name|email|phone|resume|cover.?letter", re.IGNORECASE)
+    payload = await asyncio.to_thread(
+        _json, f"{GREENHOUSE_API}/{board}/jobs/{job_id}?content=true&questions=true"
+    )
+    standard = re.compile(
+        r"first.?name|last.?name|full.?name|email|phone|resume|cover.?letter", re.IGNORECASE
+    )
     questions = []
     for question_index, question in enumerate(payload.get("questions") or []):
         label = plain_text(question.get("label") or f"Application question {question_index + 1}")
@@ -197,14 +228,21 @@ async def fetch_application_questions(external_id: str) -> dict:
             if standard.search(f"{name} {label}"):
                 continue
             values = field.get("values") or []
-            options = [plain_text(str(value.get("label") or value.get("name") or value.get("value") or "")) if isinstance(value, dict) else plain_text(str(value)) for value in values]
-            questions.append({
-                "key": re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:150],
-                "label": label,
-                "required": bool(question.get("required")),
-                "type": str(field.get("type") or "input_text"),
-                "options": [option for option in options if option],
-            })
+            options = [
+                plain_text(str(value.get("label") or value.get("name") or value.get("value") or ""))
+                if isinstance(value, dict)
+                else plain_text(str(value))
+                for value in values
+            ]
+            questions.append(
+                {
+                    "key": re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:150],
+                    "label": label,
+                    "required": bool(question.get("required")),
+                    "type": str(field.get("type") or "input_text"),
+                    "options": [option for option in options if option],
+                }
+            )
     return {
         "questions": questions,
         "source": "Greenhouse public application schema",
@@ -213,15 +251,32 @@ async def fetch_application_questions(external_id: str) -> dict:
 
 
 async def sourced_interview_questions(skills: list[str], title: str) -> list[dict]:
-    title_terms = [term for term in re.findall(r"[A-Za-z][A-Za-z+#.]{2,}", title) if term.lower() not in {"senior", "junior", "working", "student", "developer", "engineer"}]
+    title_terms = [
+        term
+        for term in re.findall(r"[A-Za-z][A-Za-z+#.]{2,}", title)
+        if term.lower() not in {"senior", "junior", "working", "student", "developer", "engineer"}
+    ]
     topics = list(dict.fromkeys(skills or title_terms))[:5]
-    searches = await asyncio.gather(*[
-        asyncio.to_thread(_json, f"{STACK_EXCHANGE_API}/search/advanced?" + urlencode({
-            "site": "stackoverflow", "pagesize": 2, "order": "desc", "sort": "votes",
-            "accepted": "True", "title": topic,
-        }))
-        for topic in topics
-    ], return_exceptions=True)
+    searches = await asyncio.gather(
+        *[
+            asyncio.to_thread(
+                _json,
+                f"{STACK_EXCHANGE_API}/search/advanced?"
+                + urlencode(
+                    {
+                        "site": "stackoverflow",
+                        "pagesize": 2,
+                        "order": "desc",
+                        "sort": "votes",
+                        "accepted": "True",
+                        "title": topic,
+                    }
+                ),
+            )
+            for topic in topics
+        ],
+        return_exceptions=True,
+    )
     questions = []
     seen = set()
     for topic, search in zip(topics, searches, strict=True):
@@ -235,22 +290,31 @@ async def sourced_interview_questions(skills: list[str], title: str) -> list[dic
     if not questions:
         return []
     answer_ids = ";".join(str(item["accepted_answer_id"]) for _, item in questions[:8])
-    answers = await asyncio.to_thread(_json, f"{STACK_EXCHANGE_API}/answers/{answer_ids}?" + urlencode({
-        "site": "stackoverflow", "filter": "withbody",
-    }))
+    answers = await asyncio.to_thread(
+        _json,
+        f"{STACK_EXCHANGE_API}/answers/{answer_ids}?"
+        + urlencode(
+            {
+                "site": "stackoverflow",
+                "filter": "withbody",
+            }
+        ),
+    )
     bodies = {item["answer_id"]: plain_text(item.get("body", "")) for item in answers.get("items", [])}
     output = []
     for topic, question in questions:
         answer = bodies.get(question["accepted_answer_id"], "")
         if not answer:
             continue
-        output.append({
-            "skill": topic,
-            "question": plain_text(question.get("title", "")),
-            "answer": answer[:1200] + ("…" if len(answer) > 1200 else ""),
-            "source": "Stack Overflow (accepted community answer)",
-            "source_url": question.get("link", ""),
-        })
+        output.append(
+            {
+                "skill": topic,
+                "question": plain_text(question.get("title", "")),
+                "answer": answer[:1200] + ("…" if len(answer) > 1200 else ""),
+                "source": "Stack Overflow (accepted community answer)",
+                "source_url": question.get("link", ""),
+            }
+        )
         if len(output) == 6:
             break
     return output

@@ -1,5 +1,6 @@
 {
   "name":"WF-02 Job Ingestion",
+  "id":"WF-02",
   "nodes":[
     {"parameters":{"rule":{"interval":[{"field":"hours","hoursInterval":1}]}},"id":"1","name":"Hourly Schedule","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[0,0]},
     {"parameters":{"operation":"executeQuery","query":"SELECT id,name,endpoint,source_type FROM job_sources WHERE enabled=true"},"id":"2","name":"Get Enabled Sources","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[220,0]},

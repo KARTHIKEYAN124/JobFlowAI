@@ -1,5 +1,6 @@
 {
   "name": "WF-01 Candidate Profile Processor",
+  "id": "WF-01",
   "nodes": [
     {"parameters":{"httpMethod":"POST","path":"candidate-profile","responseMode":"lastNode"},"id":"1","name":"Profile Webhook","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0]},
     {"parameters":{"url":"={{$env.API_INTERNAL_URL}}/api/v1/profile","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth"},"id":"2","name":"Get Candidate Profile","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[240,0]},

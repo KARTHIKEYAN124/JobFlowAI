@@ -1,5 +1,6 @@
 {
   "name":"WF-04 Job Matcher",
+  "id":"WF-04",
   "nodes":[
     {"parameters":{},"id":"1","name":"New Processed Job","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[0,0]},
     {"parameters":{"operation":"executeQuery","query":"SELECT id AS candidate_id FROM users"},"id":"2","name":"Get Candidates","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[240,0]},

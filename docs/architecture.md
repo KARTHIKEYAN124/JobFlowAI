@@ -32,12 +32,12 @@ Deterministic points total 100:
 | Freshness | 5 |
 | Employment type | 5 |
 
-The final score is `0.65 × deterministic + 0.35 × semantic`. The local semantic fallback uses normalized token similarity so the project remains runnable without paid credentials. The service boundary permits replacing it with pgvector/Qdrant cosine similarity without moving score logic into n8n.
+The final score is `0.65 × deterministic + 0.35 × semantic`. Configured Ollama or OpenAI-compatible embeddings are persisted on profiles/jobs and indexed in Qdrant. The local token-hash fallback keeps development and tests runnable without paid credentials. Search uses Qdrant when configured and falls back to stored-vector cosine ranking without moving score logic into n8n.
 
 ## Security controls
 
 - Argon2 password hashing and signed, expiring JWTs
-- User-scoped queries and role field for RBAC extension
+- User-scoped queries and enforced admin-role dependencies for operational records
 - Signed n8n webhooks using a separate secret
 - Tight CORS allowlist and security response headers
 - Per-client API, authentication, and webhook rate limits
@@ -51,7 +51,7 @@ For production, enforce TLS and edge WAF/rate limiting in Cloudflare/Traefik, ro
 
 ## Observability
 
-FastAPI exports Prometheus HTTP request count, status, and latency metrics at `/metrics`. Business data records workflow runs, errors, notification delivery, ingestion count, matches, and application state. Grafana is provisioned with Prometheus. Provider adapters should add token and cost counters before enabling a paid LLM.
+FastAPI exports HTTP, ingestion, match latency, workflow, notification, AI request, token, latency, and estimated-cost metrics at `/metrics`. Business data records workflow runs, dead letters, notification delivery, AI usage, matches, and application state. Grafana provisions the `JobFlow AI Operations` dashboard from source control.
 
 ## Production evolution
 

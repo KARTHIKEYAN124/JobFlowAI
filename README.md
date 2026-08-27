@@ -11,11 +11,13 @@ JobFlow AI continuously collects permitted public job feeds, normalizes and dedu
 - Next.js 15 + TypeScript dashboard with Jobs, Matches, Applications, Skills, Analytics, Automations, Profile, and Settings routes
 - FastAPI REST API for registration, JWT login, profiles, validated PDF resumes, jobs, matching, applications, AI assistance, analytics, and signed n8n webhooks
 - Multi-source discovery from Arbeitnow, Remotive, and Remote OK, plus Greenhouse, Lever, Ashby, and SmartRecruiters imports and reviewed portal autofill
-- Deterministic 100-point match model combined with semantic similarity at a documented 65/35 weighting
+- Deterministic 100-point match model combined with semantic similarity at a documented 65/35 weighting, configurable real embeddings, and Qdrant search
+- Provider-neutral Ollama/OpenAI-compatible structured generation with offline fallbacks and per-user token/cost accounting
 - Skill-gap and market-demand analytics
 - Ten separate importable n8n workflows, including retry/error handling
 - PostgreSQL/pgvector, Qdrant, Redis, Ollama, n8n queue worker, Prometheus, and Grafana in Docker Compose
-- Input validation, RBAC-ready user roles, CORS, webhook authentication, rate limiting, parameterized SQL/ORM access, security headers, and safe file validation
+- Persisted notification preferences, workflow/dead-letter history, document versions, and live dashboard analytics rather than sample counters
+- Input validation, enforced admin RBAC, CORS, webhook authentication, rate limiting, parameterized SQL/ORM access, security headers, and safe file validation
 - Backend tests, frontend lint/build gates, workflow JSON validation, and GitHub Actions CI
 
 ## Architecture
@@ -51,12 +53,25 @@ See [architecture](docs/architecture.md), [API reference](docs/api.md), and [wor
    - Grafana: <http://localhost:3001>
    - Prometheus: <http://localhost:9090>
 
-4. Import `workflows/*.json` in n8n, add Postgres/SMTP/API bearer credentials in the n8n credential store, then activate workflows after testing them with pinned sample data.
+4. Import `workflows/*.json` in n8n, add Postgres/SMTP/API bearer credentials in the encrypted n8n credential store, then activate workflows after testing them with pinned sample data. A repeatable importer is available:
+
+   ```bash
+   docker compose --profile setup run --rm n8n-import
+   ```
+
+   After testing, set `N8N_AUTO_ACTIVATE=true` and rerun the importer.
 
 For local Ollama, start the optional profile:
 
 ```bash
 docker compose --profile local-ai up --build
+```
+
+Then pull the configured models and set `AI_PROVIDER=ollama`:
+
+```bash
+docker compose exec ollama ollama pull llama3.2:3b
+docker compose exec ollama ollama pull nomic-embed-text
 ```
 
 No API keys are stored in source, workflow JSON, or frontend code.
@@ -74,10 +89,10 @@ Start at <http://localhost:3000/auth/sign-up> and create an account. The browser
 | `/jobs/{id}` | Review one job, its source link, match score, skills, and gaps. **Prepare interview questions** searches the public Stack Exchange API and shows accepted Stack Overflow answers with citations. |
 | `/matches` | View ranked match results produced by the matching workflow/API. |
 | `/applications` | Review generated drafts, approve a READY application, and mark it APPLIED after you submit it externally. JobFlow never sends an application without you. |
-| `/skills` | Review skill demand and the gaps found across your matches. |
-| `/analytics` | Review job, match, application, interview, and offer funnel metrics. |
-| `/automations` | See the status of the ten n8n workflows. Manage/import the workflows in n8n itself. |
-| `/settings` | Review notification, integration, and security preferences. |
+| `/skills` | Review live skill demand and gaps calculated from your current matches. |
+| `/analytics` | Review measured conversion rates, weekly discovery, and recorded AI token/cost usage. |
+| `/automations` | See persisted execution state for all ten workflows and run public discovery. Manage/import workflows in n8n itself. |
+| `/settings` | Save notification destinations and per-account automation preferences. |
 
 ### Local HTTP services
 

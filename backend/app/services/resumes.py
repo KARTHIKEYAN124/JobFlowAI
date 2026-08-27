@@ -1,8 +1,20 @@
 import re
 
 KNOWN_SKILLS = (
-    "Java", "Spring Boot", "Python", "FastAPI", "React", "Next.js", "TypeScript",
-    "PostgreSQL", "Docker", "AWS", "Kafka", "Kubernetes", "Terraform", "RAG",
+    "Java",
+    "Spring Boot",
+    "Python",
+    "FastAPI",
+    "React",
+    "Next.js",
+    "TypeScript",
+    "PostgreSQL",
+    "Docker",
+    "AWS",
+    "Kafka",
+    "Kubernetes",
+    "Terraform",
+    "RAG",
 )
 
 
@@ -19,4 +31,3 @@ def extract_resume(text: str) -> dict:
         "projects": [],
         "languages": [],
     }
-
