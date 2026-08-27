@@ -8,7 +8,9 @@ void (async () => {
   if (!token) return;
   history.replaceState(null, "", `${location.pathname}${location.search}`);
 
-  const panel = document.createElement("aside");
+  const panel = document.createElement("div");
+  panel.id = "jobflow-ai-companion";
+  panel.setAttribute("role", "complementary");
   panel.setAttribute("aria-live", "polite");
   Object.assign(panel.style, {
     position: "fixed", right: "20px", bottom: "20px", zIndex: "2147483647", width: "360px",
@@ -23,7 +25,7 @@ void (async () => {
     userSelect: "none", touchAction: "none", borderBottom: "1px solid #374151"
   });
   const panelTitle = document.createElement("span");
-  panelTitle.textContent = "JobFlow 1.3.1 · Drag here";
+  panelTitle.textContent = "JobFlow 1.3.2 · Drag here";
   const panelControls = document.createElement("div");
   Object.assign(panelControls.style, { display: "flex", gap: "6px", flexShrink: "0" });
   const headerButton = (label, title) => {
@@ -72,7 +74,7 @@ void (async () => {
     minimizeButton.textContent = minimized ? "+" : "−";
     minimizeButton.title = minimized ? "Restore JobFlow panel" : "Minimize JobFlow panel";
     minimizeButton.setAttribute("aria-label", minimizeButton.title);
-    panelTitle.textContent = minimized ? "JobFlow 1.3.1" : "JobFlow 1.3.1 · Drag here";
+    panelTitle.textContent = minimized ? "JobFlow 1.3.2" : "JobFlow 1.3.2 · Drag here";
     window.requestAnimationFrame(clampPanelToViewport);
   });
   panelHeader.addEventListener("pointerdown", event => {
