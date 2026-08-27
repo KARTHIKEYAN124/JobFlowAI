@@ -35,6 +35,10 @@ http_latency = Histogram("jobflow_http_request_duration_seconds", "HTTP latency"
 
 @app.middleware("http")
 async def limits(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if path == "/backend" or path.startswith("/backend/"):
+        request.scope["root_path"] = "/backend"
+        request.scope["path"] = path.removeprefix("/backend") or "/"
     if request.url.path.startswith("/api/"):
         key = f"{request.client.host if request.client else 'unknown'}:{request.url.path.split('/')[3:5]}"
         window = windows[key]
@@ -50,9 +54,9 @@ async def limits(request: Request, call_next):
     started = monotonic()
     response = await call_next(request)
     route = request.scope.get("route")
-    path = getattr(route, "path", request.url.path)
-    http_requests.labels(request.method, path, response.status_code).inc()
-    http_latency.labels(request.method, path).observe(monotonic() - started)
+    route_path = getattr(route, "path", request.url.path)
+    http_requests.labels(request.method, route_path, response.status_code).inc()
+    http_latency.labels(request.method, route_path).observe(monotonic() - started)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"

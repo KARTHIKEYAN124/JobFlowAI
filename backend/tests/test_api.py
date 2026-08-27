@@ -16,6 +16,15 @@ def test_health_and_security_headers():
     assert response.headers["x-frame-options"] == "DENY"
 
 
+def test_vercel_backend_mount_routes_to_fastapi():
+    with TestClient(app) as client:
+        response = client.get("/backend/health")
+        docs = client.get("/backend/docs")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert docs.status_code == 200
+
+
 def test_protected_route_requires_authentication():
     with TestClient(app) as client:
         response = client.get("/api/v1/profile")
