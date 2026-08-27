@@ -29,5 +29,4 @@ jobs:
       - uses: actions/checkout@v4
       - run: python -m json.tool workflows/WF-01-candidate-profile-processor.json >/dev/null
       - run: for file in workflows/*.json; do python -m json.tool "$file" >/dev/null; done
-      - run: docker compose config --quiet
-
+      - run: JOBFLOW_ENV_FILE=.env.example docker compose --env-file .env.example config --quiet

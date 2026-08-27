@@ -35,7 +35,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const key = `launch_${tabId}`;
     chrome.storage.session.get(key).then(result => {
       const launch = result[key];
-      return chrome.storage.session.remove(key).then(() => sendResponse({ ok: Boolean(launch?.token && launch.expiresAt > Date.now()), token: launch?.expiresAt > Date.now() ? launch.token : null }));
+      const valid = Boolean(launch?.token && launch.expiresAt > Date.now());
+      if (valid) {
+        sendResponse({ ok: true, token: launch.token });
+        return;
+      }
+      return chrome.storage.session.remove(key).then(() => sendResponse({ ok: false, token: null }));
     }).catch(() => sendResponse({ ok: false }));
     return true;
   }

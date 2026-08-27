@@ -1,5 +1,5 @@
 {
-  "name":"WF-06 Application Generator","nodes":[
+  "name":"WF-06 Application Generator","id":"WF-06","nodes":[
     {"parameters":{"httpMethod":"POST","path":"application-generator","responseMode":"lastNode"},"id":"1","name":"Application Webhook","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[0,0]},
     {"parameters":{"method":"POST","url":"={{$env.API_INTERNAL_URL}}/api/v1/ai/application","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth","sendBody":true,"specifyBody":"json","jsonBody":"={\"application_id\":\"{{$json.body.application_id}}\"}"},"id":"2","name":"Generate Honest Application Pack","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[260,0]},
     {"parameters":{"jsCode":"if(!$json.requires_human_approval)throw new Error('Application output must require human approval');return items;"},"id":"3","name":"Enforce Human Approval","type":"n8n-nodes-base.code","typeVersion":2,"position":[520,0]},

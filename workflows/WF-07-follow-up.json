@@ -1,5 +1,5 @@
 {
-  "name":"WF-07 Follow-up","nodes":[
+  "name":"WF-07 Follow-up","id":"WF-07","nodes":[
     {"parameters":{"rule":{"interval":[{"triggerAtHour":8}]}},"id":"1","name":"Every Morning","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[0,0]},
     {"parameters":{"operation":"executeQuery","query":"SELECT a.id,a.user_id,j.title,j.company_name FROM applications a JOIN jobs j ON j.id=a.job_id WHERE a.status='APPLIED' AND a.applied_at < NOW()-INTERVAL '7 days' AND a.followup_sent=false"},"id":"2","name":"Find Due Follow-ups","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[240,0]},
     {"parameters":{"jsCode":"return items.map(i=>({json:{...i.json,message:`Follow-up due for ${i.json.title} at ${i.json.company_name}. Review the suggested message before sending.`}}));"},"id":"3","name":"Generate Reminder","type":"n8n-nodes-base.code","typeVersion":2,"position":[480,0]},

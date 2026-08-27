@@ -1,5 +1,5 @@
 {
-  "name":"WF-09 Skill Analytics","nodes":[
+  "name":"WF-09 Skill Analytics","id":"WF-09","nodes":[
     {"parameters":{"rule":{"interval":[{"field":"days","daysInterval":1,"triggerAtHour":2}]}},"id":"1","name":"Nightly","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[0,0]},
     {"parameters":{"operation":"executeQuery","query":"TRUNCATE skill_statistics; INSERT INTO skill_statistics(id,skill,demand_count,gap_count,updated_at) SELECT gen_random_uuid(),skill,COUNT(*),0,NOW() FROM jobs CROSS JOIN LATERAL jsonb_array_elements_text(required_skills::jsonb) skill GROUP BY skill; UPDATE skill_statistics s SET gap_count=x.c FROM (SELECT skill,COUNT(*) c FROM job_matches CROSS JOIN LATERAL jsonb_array_elements_text(missing_skills::jsonb) skill GROUP BY skill) x WHERE x.skill=s.skill"},"id":"2","name":"Aggregate Demand and Gaps","type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[260,0]},
     {"parameters":{"method":"POST","url":"={{$env.API_INTERNAL_URL}}/api/v1/webhooks/n8n/status","sendHeaders":true,"headerParameters":{"parameters":[{"name":"X-Webhook-Secret","value":"={{$env.WEBHOOK_SECRET}}"}]},"sendBody":true,"specifyBody":"json","jsonBody":"={\"workflow\":\"WF-09 Skill Analytics\",\"status\":\"success\"}"},"id":"3","name":"Record Completion","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[520,0]}

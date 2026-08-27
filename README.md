@@ -11,11 +11,13 @@ JobFlow AI continuously collects permitted public job feeds, normalizes and dedu
 - Next.js 15 + TypeScript dashboard with Jobs, Matches, Applications, Skills, Analytics, Automations, Profile, and Settings routes
 - FastAPI REST API for registration, JWT login, profiles, validated PDF resumes, jobs, matching, applications, AI assistance, analytics, and signed n8n webhooks
 - Multi-source discovery from Arbeitnow, Remotive, and Remote OK, plus Greenhouse, Lever, Ashby, and SmartRecruiters imports and reviewed portal autofill
-- Deterministic 100-point match model combined with semantic similarity at a documented 65/35 weighting
+- Deterministic 100-point match model combined with semantic similarity at a documented 65/35 weighting, configurable real embeddings, and Qdrant search
+- Provider-neutral Ollama/OpenAI-compatible structured generation with offline fallbacks and per-user token/cost accounting
 - Skill-gap and market-demand analytics
 - Ten separate importable n8n workflows, including retry/error handling
 - PostgreSQL/pgvector, Qdrant, Redis, Ollama, n8n queue worker, Prometheus, and Grafana in Docker Compose
-- Input validation, RBAC-ready user roles, CORS, webhook authentication, rate limiting, parameterized SQL/ORM access, security headers, and safe file validation
+- Persisted notification preferences, workflow/dead-letter history, document versions, and live dashboard analytics rather than sample counters
+- Input validation, enforced admin RBAC, CORS, webhook authentication, rate limiting, parameterized SQL/ORM access, security headers, and safe file validation
 - Backend tests, frontend lint/build gates, workflow JSON validation, and GitHub Actions CI
 
 ## Architecture
@@ -51,12 +53,25 @@ See [architecture](docs/architecture.md), [API reference](docs/api.md), and [wor
    - Grafana: <http://localhost:3001>
    - Prometheus: <http://localhost:9090>
 
-4. Import `workflows/*.json` in n8n, add Postgres/SMTP/API bearer credentials in the n8n credential store, then activate workflows after testing them with pinned sample data.
+4. Import `workflows/*.json` in n8n, add Postgres/SMTP/API bearer credentials in the encrypted n8n credential store, then activate workflows after testing them with pinned sample data. A repeatable importer is available:
+
+   ```bash
+   docker compose --profile setup run --rm n8n-import
+   ```
+
+   After testing, set `N8N_AUTO_ACTIVATE=true` and rerun the importer.
 
 For local Ollama, start the optional profile:
 
 ```bash
 docker compose --profile local-ai up --build
+```
+
+Then pull the configured models and set `AI_PROVIDER=ollama`:
+
+```bash
+docker compose exec ollama ollama pull llama3.2:3b
+docker compose exec ollama ollama pull nomic-embed-text
 ```
 
 No API keys are stored in source, workflow JSON, or frontend code.
@@ -70,14 +85,14 @@ Start at <http://localhost:3000/auth/sign-up> and create an account. The browser
 | `/auth/sign-up` | Create an account with your name, email, and a password of at least 10 characters. |
 | `/auth/sign-in` | Sign in to an existing account. Sign in again if a page says authentication is required. |
 | `/profile` | Edit your name, headline, target roles, locations, salary, and remote preference. Click **Save profile**. Uploading a text-based PDF stores the original file, extracts skills, scans Arbeitnow, Remotive, and Remote OK, imports relevant jobs, and calculates matches. The stored PDF can be downloaded from the same card. |
-| `/jobs` | Browse/filter imported opportunities, scan multiple public feeds, or paste a public Greenhouse, Lever, Ashby, or SmartRecruiters posting URL to fetch the employer's current description. **Prepare application** opens a detailed form for contact information, work authorization, availability, salary, links, experience, motivation, and review consent before generating a draft. |
+| `/jobs` | Browse/filter imported opportunities, scan multiple public feeds, or paste a public Greenhouse, Lever, Ashby, or SmartRecruiters posting URL to fetch the employer's current description. **Prepare application** opens a detailed form for contact information, work authorization, availability, salary, links, experience, motivation, and review consent before generating a draft. The review screen previews/downloads the exact tailored PDF and accepts versioned revision requests that can reorder, emphasize, or omit only verified resume evidence. |
 | `/jobs/{id}` | Review one job, its source link, match score, skills, and gaps. **Prepare interview questions** searches the public Stack Exchange API and shows accepted Stack Overflow answers with citations. |
 | `/matches` | View ranked match results produced by the matching workflow/API. |
 | `/applications` | Review generated drafts, approve a READY application, and mark it APPLIED after you submit it externally. JobFlow never sends an application without you. |
-| `/skills` | Review skill demand and the gaps found across your matches. |
-| `/analytics` | Review job, match, application, interview, and offer funnel metrics. |
-| `/automations` | See the status of the ten n8n workflows. Manage/import the workflows in n8n itself. |
-| `/settings` | Review notification, integration, and security preferences. |
+| `/skills` | Review live skill demand and gaps calculated from your current matches. |
+| `/analytics` | Review measured conversion rates, weekly discovery, and recorded AI token/cost usage. |
+| `/automations` | See persisted execution state for all ten workflows and run public discovery. Manage/import workflows in n8n itself. |
+| `/settings` | Save notification destinations and per-account automation preferences. |
 
 ### Local HTTP services
 
@@ -97,7 +112,7 @@ Internet discovery uses documented or public job APIs rather than arbitrary webs
 
 ### Job portal companion
 
-The unpacked extension in `companion/` supports public Greenhouse, Lever, Ashby, and SmartRecruiters application pages. Install it from `chrome://extensions` or `edge://extensions` using **Developer mode → Load unpacked**; after pulling an update, click **Reload** and confirm version **1.2.1**. After generating and reviewing an application, select **Fill on job portal**. A JobFlow bridge preserves the short-lived 20-minute token across employer redirects and displays installation help if the extension is not detected. The companion fills known fields, attaches an ATS-readable tailored PDF made only from verified resume text, and asks for every visible unanswered portal field using the employer's real options. It highlights missing required answers and waits for an explicit confirmation before clicking submit. It never bypasses CAPTCHA/MFA, invents qualifications, or stores employer credentials.
+The unpacked extension in `companion/` supports public Greenhouse, Lever, Ashby, and SmartRecruiters application pages. Install it from `chrome://extensions` or `edge://extensions` using **Developer mode → Load unpacked**; after pulling an update, click **Reload** and confirm version **1.3.2**. After generating and reviewing an application, select **Fill on job portal**. A JobFlow bridge preserves the short-lived 20-minute token across employer redirects and page refreshes and displays installation help if the extension is not detected. The companion can be dragged by its header, docked left/right with **←/→**, and minimized/restored with **−/+**. It fills known fields and asks for every visible unanswered portal field using the employer's real options. When it detects a real resume/CV upload field, **Import tailored resume** lets the user attach the ATS-readable PDF made only from verified resume text; unrelated file fields are not touched. It highlights missing required answers and waits for an explicit confirmation before clicking submit. It never bypasses CAPTCHA/MFA, invents qualifications, or stores employer credentials.
 
 If a page shows `ERR_CONNECTION_REFUSED`, run `docker compose ps`. Then start or rebuild missing services with `docker compose up --build -d`. A first Docker image download can be retried after a TLS timeout with `docker compose pull` followed by the start command.
 

@@ -1,5 +1,6 @@
 {
   "name":"WF-05 High-match Notification",
+  "id":"WF-05",
   "nodes":[
     {"parameters":{},"id":"1","name":"High Match","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[0,0]},
     {"parameters":{"jsCode":"return [{json:{...$json,subject:`🚀 ${$json.overall_score}% Job Match`,body:`Strong match. Matched: ${($json.matched_skills||[]).join(', ')}. Missing: ${($json.missing_skills||[]).join(', ')||'none'}.`}}];"},"id":"2","name":"Generate Safe Summary","type":"n8n-nodes-base.code","typeVersion":2,"position":[240,0]},

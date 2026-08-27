@@ -1,5 +1,6 @@
 {
   "name":"WF-03 Requirement Extractor",
+  "id":"WF-03",
   "nodes":[
     {"parameters":{},"id":"1","name":"From Job Ingestion","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[0,0]},
     {"parameters":{"url":"={{$env.API_INTERNAL_URL}}/api/v1/jobs/{{$json.id}}","authentication":"genericCredentialType","genericAuthType":"httpHeaderAuth"},"id":"2","name":"Get Job","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[240,0]},
